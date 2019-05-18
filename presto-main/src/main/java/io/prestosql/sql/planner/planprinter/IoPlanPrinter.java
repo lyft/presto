@@ -16,21 +16,27 @@ package io.prestosql.sql.planner.planprinter;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import io.prestosql.Session;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.metadata.OperatorNotFoundException;
+import io.prestosql.metadata.QualifiedObjectName;
 import io.prestosql.metadata.TableHandle;
 import io.prestosql.metadata.TableMetadata;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.CatalogSchemaTableName;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
+import io.prestosql.spi.connector.Constraint;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.predicate.Marker;
 import io.prestosql.spi.predicate.Marker.Bound;
 import io.prestosql.spi.predicate.TupleDomain;
+import io.prestosql.spi.statistics.ColumnStatistics;
+import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.TypeSignature;
+import io.prestosql.sql.planner.Plan;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.PlanVisitor;
 import io.prestosql.sql.planner.plan.TableFinishNode;
@@ -55,6 +61,7 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.airlift.json.JsonCodec.jsonCodec;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
+import static io.prestosql.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
 import static io.prestosql.sql.planner.planprinter.PlanPrinterUtil.castToVarcharOrFail;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -70,15 +77,15 @@ public class IoPlanPrinter
         this.session = requireNonNull(session, "session is null");
     }
 
-    public static String textIoPlan(PlanNode plan, Metadata metadata, Session session)
+    public static String textIoPlan(Plan plan, Metadata metadata, Session session)
     {
         return new IoPlanPrinter(metadata, session).print(plan);
     }
 
-    private String print(PlanNode plan)
+    private String print(Plan plan)
     {
         IoPlanBuilder ioPlanBuilder = new IoPlanBuilder();
-        plan.accept(new IoPlanVisitor(), ioPlanBuilder);
+        plan.getRoot().accept(new IoPlanVisitor(), ioPlanBuilder);
         return jsonCodec(IoPlan.class).toJson(ioPlanBuilder.build());
     }
 
@@ -167,14 +174,17 @@ public class IoPlanPrinter
         public static class TableColumnInfo
         {
             private final CatalogSchemaTableName table;
+            private final Long estBytesScanned;
             private final Set<ColumnConstraint> columnConstraints;
 
             @JsonCreator
             public TableColumnInfo(
                     @JsonProperty("table") CatalogSchemaTableName table,
+                    @JsonProperty("estBytesScanned") Long estBytesScanned,
                     @JsonProperty("columnConstraints") Set<ColumnConstraint> columnConstraints)
             {
                 this.table = requireNonNull(table, "table is null");
+                this.estBytesScanned = estBytesScanned;
                 this.columnConstraints = requireNonNull(columnConstraints, "columnConstraints is null");
             }
 
@@ -182,6 +192,12 @@ public class IoPlanPrinter
             public CatalogSchemaTableName getTable()
             {
                 return table;
+            }
+
+            @JsonProperty
+            public Long getEstBytesScanned()
+            {
+                return estBytesScanned;
             }
 
             @JsonProperty
@@ -470,11 +486,36 @@ public class IoPlanPrinter
         {
             TableMetadata tableMetadata = metadata.getTableMetadata(session, node.getTable());
             TupleDomain<ColumnHandle> predicate = metadata.getTableProperties(session, node.getTable()).getPredicate();
+            QualifiedObjectName tableName = new QualifiedObjectName(tableMetadata.getCatalogName().getCatalogName(),
+                    tableMetadata.getTable().getSchemaName(),
+                    tableMetadata.getTable().getTableName());
+            Optional<TableHandle> optTableHandle = metadata.getTableHandle(session, tableName);
+            Long estBytesScanned = null;
+            if (optTableHandle.isPresent()) {
+                TableHandle table = optTableHandle.get();
+                Constraint constraint = new Constraint(predicate);
+                TableStatistics tableStatistics = metadata.getTableStatistics(session, table, constraint);
+                long bytesScanned = 0;
+                Set<ColumnHandle> accessedColumns = Sets.<ColumnHandle>newHashSetWithExpectedSize(
+                        predicate.getDomains().get().keySet().size()
+                                + node.getAssignments().values().size());
+                accessedColumns.addAll(predicate.getDomains().get().keySet());
+                accessedColumns.addAll(node.getAssignments().values());
+                // Only include projected and filtered columns
+                for (Map.Entry<ColumnHandle,ColumnStatistics> entry : tableStatistics.getColumnStatistics().entrySet()) {
+                    if (!entry.getValue().getDataSize().isUnknown() &&
+                            accessedColumns.contains(entry.getKey())) {
+                        bytesScanned += entry.getValue().getDataSize().getValue();
+                    }
+                }
+                estBytesScanned = bytesScanned;
+            }
             context.addInputTableColumnInfo(new IoPlan.TableColumnInfo(
                     new CatalogSchemaTableName(
                             tableMetadata.getCatalogName().getCatalogName(),
                             tableMetadata.getTable().getSchemaName(),
                             tableMetadata.getTable().getTableName()),
+                    estBytesScanned,
                     parseConstraints(node.getTable(), predicate)));
             return null;
         }

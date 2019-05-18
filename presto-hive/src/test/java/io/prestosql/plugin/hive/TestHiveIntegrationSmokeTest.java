@@ -195,6 +195,7 @@ public class TestHiveIntegrationSmokeTest
                 new IoPlan(
                         ImmutableSet.of(new TableColumnInfo(
                                 new CatalogSchemaTableName(catalog, "tpch", "test_orders"),
+                                null,
                                 ImmutableSet.of(
                                         new ColumnConstraint(
                                                 "orderkey",
@@ -230,6 +231,7 @@ public class TestHiveIntegrationSmokeTest
                 new IoPlan(
                         ImmutableSet.of(new TableColumnInfo(
                                 new CatalogSchemaTableName(catalog, "tpch", "test_orders"),
+                                null,
                                 ImmutableSet.of(
                                         new ColumnConstraint(
                                                 "orderkey",
@@ -274,6 +276,7 @@ public class TestHiveIntegrationSmokeTest
                     new IoPlan(
                             ImmutableSet.of(new TableColumnInfo(
                                     new CatalogSchemaTableName(catalog, "tpch", "test_types_table"),
+                                    null,
                                     ImmutableSet.of(
                                             new ColumnConstraint(
                                                     "my_col",
