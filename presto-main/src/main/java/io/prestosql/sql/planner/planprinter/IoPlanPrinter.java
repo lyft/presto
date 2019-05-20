@@ -49,6 +49,7 @@ import io.prestosql.sql.planner.plan.TableWriterNode.InsertReference;
 import io.prestosql.sql.planner.plan.TableWriterNode.WriterTarget;
 import io.prestosql.sql.planner.planprinter.IoPlanPrinter.IoPlan.IoPlanBuilder;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -93,6 +94,7 @@ public class IoPlanPrinter
     {
         private final Set<TableColumnInfo> inputTableColumnInfos;
         private final Optional<CatalogSchemaTableName> outputTable;
+        private final Long estBytesScanned;
 
         @JsonCreator
         public IoPlan(
@@ -101,6 +103,21 @@ public class IoPlanPrinter
         {
             this.inputTableColumnInfos = ImmutableSet.copyOf(requireNonNull(inputTableColumnInfos, "inputTableColumnInfos is null"));
             this.outputTable = requireNonNull(outputTable, "outputTable is null");
+            long totalEstBytesScanned = 0;
+            boolean hasTotalEstBytesScanned = false;
+            for (TableColumnInfo info : inputTableColumnInfos) {
+                Long estBytesScanned = info.getEstBytesScanned();
+                if (estBytesScanned != null) {
+                    hasTotalEstBytesScanned = true;
+                    totalEstBytesScanned += estBytesScanned;
+                }
+            }
+            estBytesScanned =  hasTotalEstBytesScanned ? totalEstBytesScanned : null;
+        }
+
+        @JsonProperty
+        public Long getEstBytesScanned() {
+            return estBytesScanned;
         }
 
         @JsonProperty
@@ -496,15 +513,12 @@ public class IoPlanPrinter
                 Constraint constraint = new Constraint(predicate);
                 TableStatistics tableStatistics = metadata.getTableStatistics(session, table, constraint);
                 long bytesScanned = 0;
-                Set<ColumnHandle> accessedColumns = Sets.<ColumnHandle>newHashSetWithExpectedSize(
-                        predicate.getDomains().get().keySet().size()
-                                + node.getAssignments().values().size());
-                accessedColumns.addAll(predicate.getDomains().get().keySet());
-                accessedColumns.addAll(node.getAssignments().values());
-                // Only include projected and filtered columns
+                // Only include stats for columns that are projected or used in a filter
+                Set<ColumnHandle> predicateColumns = predicate.getDomains().get().keySet();
+                Collection<ColumnHandle> projectedColumns = node.getAssignments().values();
                 for (Map.Entry<ColumnHandle,ColumnStatistics> entry : tableStatistics.getColumnStatistics().entrySet()) {
-                    if (!entry.getValue().getDataSize().isUnknown() &&
-                            accessedColumns.contains(entry.getKey())) {
+                    if (!entry.getValue().getDataSize().isUnknown()
+                            && (predicateColumns.contains(entry.getKey()) || projectedColumns.contains(entry.getKey()))) {
                         bytesScanned += entry.getValue().getDataSize().getValue();
                     }
                 }
