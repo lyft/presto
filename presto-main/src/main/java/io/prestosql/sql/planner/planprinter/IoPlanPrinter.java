@@ -78,15 +78,15 @@ public class IoPlanPrinter
         this.session = requireNonNull(session, "session is null");
     }
 
-    public static String textIoPlan(Plan plan, Metadata metadata, Session session)
+    public static String textIoPlan(PlanNode plan, Metadata metadata, Session session)
     {
         return new IoPlanPrinter(metadata, session).print(plan);
     }
 
-    private String print(Plan plan)
+    private String print(PlanNode plan)
     {
         IoPlanBuilder ioPlanBuilder = new IoPlanBuilder();
-        plan.getRoot().accept(new IoPlanVisitor(), ioPlanBuilder);
+        plan.accept(new IoPlanVisitor(), ioPlanBuilder);
         return jsonCodec(IoPlan.class).toJson(ioPlanBuilder.build());
     }
 
