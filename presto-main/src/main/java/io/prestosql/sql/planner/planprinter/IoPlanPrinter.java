@@ -16,7 +16,6 @@ package io.prestosql.sql.planner.planprinter;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 import io.prestosql.Session;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.metadata.OperatorNotFoundException;
@@ -36,7 +35,6 @@ import io.prestosql.spi.statistics.ColumnStatistics;
 import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.TypeSignature;
-import io.prestosql.sql.planner.Plan;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.PlanVisitor;
 import io.prestosql.sql.planner.plan.TableFinishNode;
@@ -62,7 +60,6 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.airlift.json.JsonCodec.jsonCodec;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
-import static io.prestosql.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
 import static io.prestosql.sql.planner.planprinter.PlanPrinterUtil.castToVarcharOrFail;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -112,11 +109,12 @@ public class IoPlanPrinter
                     totalEstBytesScanned += estBytesScanned;
                 }
             }
-            estBytesScanned =  hasTotalEstBytesScanned ? totalEstBytesScanned : null;
+            estBytesScanned = hasTotalEstBytesScanned ? totalEstBytesScanned : null;
         }
 
         @JsonProperty
-        public Long getEstBytesScanned() {
+        public Long getEstBytesScanned()
+        {
             return estBytesScanned;
         }
 
@@ -516,7 +514,7 @@ public class IoPlanPrinter
                 // Only include stats for columns that are projected or used in a filter
                 Set<ColumnHandle> predicateColumns = predicate.getDomains().get().keySet();
                 Collection<ColumnHandle> projectedColumns = node.getAssignments().values();
-                for (Map.Entry<ColumnHandle,ColumnStatistics> entry : tableStatistics.getColumnStatistics().entrySet()) {
+                for (Map.Entry<ColumnHandle, ColumnStatistics> entry : tableStatistics.getColumnStatistics().entrySet()) {
                     if (!entry.getValue().getDataSize().isUnknown()
                             && (predicateColumns.contains(entry.getKey()) || projectedColumns.contains(entry.getKey()))) {
                         bytesScanned += entry.getValue().getDataSize().getValue();
