@@ -46,7 +46,6 @@ public class TestTpchDistributedQueries
         MaterializedResult result = computeActual("EXPLAIN (TYPE IO, FORMAT JSON) " + query);
         IoPlanPrinter.IoPlan.TableColumnInfo input = new IoPlanPrinter.IoPlan.TableColumnInfo(
                 new CatalogSchemaTableName("tpch", "sf0.01", "orders"),
-                null,
                 ImmutableSet.of(
                         new IoPlanPrinter.ColumnConstraint(
                                 "orderstatus",

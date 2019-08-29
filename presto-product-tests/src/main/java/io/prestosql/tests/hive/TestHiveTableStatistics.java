@@ -14,7 +14,6 @@
 package io.prestosql.tests.hive;
 
 import com.google.common.collect.ImmutableList;
-import io.prestosql.sql.planner.planprinter.IoPlanPrinter;
 import io.prestosql.tempto.ProductTest;
 import io.prestosql.tempto.Requirement;
 import io.prestosql.tempto.Requirements;
@@ -25,12 +24,10 @@ import io.prestosql.tempto.configuration.Configuration;
 import io.prestosql.tempto.fulfillment.table.MutableTableRequirement;
 import io.prestosql.tempto.fulfillment.table.hive.HiveTableDefinition;
 import io.prestosql.tempto.fulfillment.table.hive.InlineDataSource;
-import io.prestosql.tempto.query.QueryResult;
 import org.testng.annotations.Test;
 
 import java.util.List;
 
-import static io.airlift.json.JsonCodec.jsonCodec;
 import static io.prestosql.tempto.assertions.QueryAssert.Row.row;
 import static io.prestosql.tempto.assertions.QueryAssert.anyOf;
 import static io.prestosql.tempto.assertions.QueryAssert.assertThat;
@@ -44,8 +41,6 @@ import static io.prestosql.tests.hive.HiveTableDefinitions.NATION_PARTITIONED_BY
 import static io.prestosql.tests.hive.HiveTableDefinitions.NATION_PARTITIONED_BY_VARCHAR_REGIONKEY;
 import static io.prestosql.tests.utils.QueryExecutors.onHive;
 import static java.lang.String.format;
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertNotNull;
 
 public class TestHiveTableStatistics
         extends ProductTest
@@ -684,9 +679,6 @@ public class TestHiveTableStatistics
                 row("n_regionkey", null, 5.0, 0.0, null, "0", "4"),
                 row("n_comment", 1857.0, 25.0, 0.0, null, null, null),
                 row(null, null, null, null, 25.0, null, null));
-
-        String projectNameFilterComment = "EXPLAIN (TYPE IO) SELECT n_name FROM " + tableNameInDatabase + " WHERE n_comment='foo'";
-        assertEstBytesScanned(projectNameFilterComment, 177 + 1857);
     }
 
     @Test
@@ -715,8 +707,6 @@ public class TestHiveTableStatistics
                 row("p_comment", null, null, null, null, null, null),
                 row(null, null, null, null, null, null, null));
 
-        String selectStarAllPartitions = "EXPLAIN (TYPE IO) SELECT * FROM " + tableNameInDatabase;
-        assertEstBytesScanned(selectStarAllPartitions, 0);
         // analyze for single partition
 
         assertThat(query("ANALYZE " + tableNameInDatabase + " WITH (partitions = ARRAY[ARRAY['1']])")).containsExactly(row(5));
@@ -734,13 +724,6 @@ public class TestHiveTableStatistics
                 row("p_regionkey", null, 1.0, 0.0, null, "1", "1"),
                 row("p_comment", 499.0, 5.0, 0.0, null, null, null),
                 row(null, null, null, null, 5.0, null, null));
-
-        String filterCommentPartitionOne = "EXPLAIN (TYPE IO) SELECT p_regionKey FROM " + tableNameInDatabase
-                + " WHERE p_regionkey = 1 AND p_comment='foo'";
-        assertEstBytesScanned(filterCommentPartitionOne, 499);
-        String filterCommentAndNamePartitionOne = "EXPLAIN (TYPE IO) SELECT p_regionKey FROM " + tableNameInDatabase
-                + " WHERE p_regionkey = 1 AND p_comment='foo' AND p_name = 'bar'";
-        assertEstBytesScanned(filterCommentAndNamePartitionOne, 499 + 38);
 
         assertThat(query(showStatsPartitionTwo)).containsOnly(
                 row("p_nationkey", null, null, null, null, null, null),
@@ -773,39 +756,6 @@ public class TestHiveTableStatistics
                 row("p_regionkey", null, 1.0, 0.0, null, "2", "2"),
                 row("p_comment", 351.0, 5.0, 0.0, null, null, null),
                 row(null, null, null, null, 5.0, null, null));
-
-        String filterCommentAllPartitions = "EXPLAIN (TYPE IO) SELECT p_regionKey FROM " + tableNameInDatabase + " WHERE p_comment='foo'";
-        assertEstBytesScanned(filterCommentAllPartitions, 1197);
-    }
-
-    @Test
-    @Requires({NationPartitionedByBigintTable.class, UnpartitionedNationTable.class})
-    public void testEstBytesScannedAcrossJoinedTables()
-    {
-        String tableName1InDatabase = mutableTablesState().get(NATION.getName()).getNameInDatabase();
-        String tableName2InDatabase = mutableTablesState().get(NATION_PARTITIONED_BY_BIGINT_REGIONKEY.getName()).getNameInDatabase();
-
-        String showStatsWholeTable1 = "SHOW STATS FOR " + tableName1InDatabase;
-        String showStatsWholeTable2 = "SHOW STATS FOR " + tableName2InDatabase;
-        assertThat(query("ANALYZE " + tableName1InDatabase)).containsExactly(row(25));
-        assertThat(query("ANALYZE " + tableName2InDatabase)).containsExactly(row(15));
-
-        assertThat(query(showStatsWholeTable1)).containsOnly(
-                row("n_nationkey", null, 25.0, 0.0, null, "0", "24"),
-                row("n_name", 177.0, 25.0, 0.0, null, null, null),
-                row("n_regionkey", null, 5.0, 0.0, null, "0", "4"),
-                row("n_comment", 1857.0, 25.0, 0.0, null, null, null),
-                row(null, null, null, null, 25.0, null, null));
-
-        assertThat(query(showStatsWholeTable2)).containsOnly(
-                row("p_nationkey", null, 5.0, 0.0, null, "1", "24"),
-                row("p_name", 109.0, 5.0, 0.0, null, null, null),
-                row("p_regionkey", null, 3.0, 0.0, null, "1", "3"),
-                row("p_comment", 1197.0, 5.0, 0.0, null, null, null),
-                row(null, null, null, null, 15.0, null, null));
-
-        String joinQuery = "EXPLAIN (TYPE IO) SELECT n_name, p_name FROM " + tableName1InDatabase + " JOIN " + tableName2InDatabase + " ON (n_nationkey = p_nationkey) WHERE n_comment='foo'";
-        assertEstBytesScanned(joinQuery, 177 + 1857 + 109);
     }
 
     @Test
@@ -1343,16 +1293,6 @@ public class TestHiveTableStatistics
         finally {
             query(format("DROP TABLE IF EXISTS %s", tableName));
         }
-    }
-
-    private static void assertEstBytesScanned(String query, long expectedEstBytesScanned)
-    {
-        QueryResult result = query(query);
-        String jsonValue = (String) result.row(0).get(0);
-        IoPlanPrinter.IoPlan ioPlan = jsonCodec(IoPlanPrinter.IoPlan.class).fromJson(jsonValue);
-        assertNotNull(ioPlan);
-        assertNotNull(ioPlan.getEstBytesScanned());
-        assertEquals(expectedEstBytesScanned, (long) ioPlan.getEstBytesScanned());
     }
 
     private static void assertComputeTableStatisticsOnCreateTable(String sourceTableName, List<Row> expectedStatistics)

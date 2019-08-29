@@ -19,20 +19,16 @@ import com.google.common.collect.ImmutableSet;
 import io.prestosql.Session;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.metadata.OperatorNotFoundException;
-import io.prestosql.metadata.QualifiedObjectName;
 import io.prestosql.metadata.TableHandle;
 import io.prestosql.metadata.TableMetadata;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.CatalogSchemaTableName;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
-import io.prestosql.spi.connector.Constraint;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.predicate.Marker;
 import io.prestosql.spi.predicate.Marker.Bound;
 import io.prestosql.spi.predicate.TupleDomain;
-import io.prestosql.spi.statistics.ColumnStatistics;
-import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.TypeSignature;
 import io.prestosql.sql.planner.plan.PlanNode;
@@ -47,7 +43,6 @@ import io.prestosql.sql.planner.plan.TableWriterNode.InsertReference;
 import io.prestosql.sql.planner.plan.TableWriterNode.WriterTarget;
 import io.prestosql.sql.planner.planprinter.IoPlanPrinter.IoPlan.IoPlanBuilder;
 
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -91,7 +86,6 @@ public class IoPlanPrinter
     {
         private final Set<TableColumnInfo> inputTableColumnInfos;
         private final Optional<CatalogSchemaTableName> outputTable;
-        private final Long estBytesScanned;
 
         @JsonCreator
         public IoPlan(
@@ -100,22 +94,6 @@ public class IoPlanPrinter
         {
             this.inputTableColumnInfos = ImmutableSet.copyOf(requireNonNull(inputTableColumnInfos, "inputTableColumnInfos is null"));
             this.outputTable = requireNonNull(outputTable, "outputTable is null");
-            long totalEstBytesScanned = 0;
-            boolean hasTotalEstBytesScanned = false;
-            for (TableColumnInfo info : inputTableColumnInfos) {
-                Long estBytesScanned = info.getEstBytesScanned();
-                if (estBytesScanned != null) {
-                    hasTotalEstBytesScanned = true;
-                    totalEstBytesScanned += estBytesScanned;
-                }
-            }
-            estBytesScanned = hasTotalEstBytesScanned ? totalEstBytesScanned : null;
-        }
-
-        @JsonProperty
-        public Long getEstBytesScanned()
-        {
-            return estBytesScanned;
         }
 
         @JsonProperty
@@ -189,17 +167,14 @@ public class IoPlanPrinter
         public static class TableColumnInfo
         {
             private final CatalogSchemaTableName table;
-            private final Long estBytesScanned;
             private final Set<ColumnConstraint> columnConstraints;
 
             @JsonCreator
             public TableColumnInfo(
                     @JsonProperty("table") CatalogSchemaTableName table,
-                    @JsonProperty("estBytesScanned") Long estBytesScanned,
                     @JsonProperty("columnConstraints") Set<ColumnConstraint> columnConstraints)
             {
                 this.table = requireNonNull(table, "table is null");
-                this.estBytesScanned = estBytesScanned;
                 this.columnConstraints = requireNonNull(columnConstraints, "columnConstraints is null");
             }
 
@@ -207,12 +182,6 @@ public class IoPlanPrinter
             public CatalogSchemaTableName getTable()
             {
                 return table;
-            }
-
-            @JsonProperty
-            public Long getEstBytesScanned()
-            {
-                return estBytesScanned;
             }
 
             @JsonProperty
@@ -501,33 +470,11 @@ public class IoPlanPrinter
         {
             TableMetadata tableMetadata = metadata.getTableMetadata(session, node.getTable());
             TupleDomain<ColumnHandle> predicate = metadata.getTableProperties(session, node.getTable()).getPredicate();
-            QualifiedObjectName tableName = new QualifiedObjectName(tableMetadata.getCatalogName().getCatalogName(),
-                    tableMetadata.getTable().getSchemaName(),
-                    tableMetadata.getTable().getTableName());
-            Optional<TableHandle> optTableHandle = metadata.getTableHandle(session, tableName);
-            Long estBytesScanned = null;
-            if (optTableHandle.isPresent()) {
-                TableHandle table = optTableHandle.get();
-                Constraint constraint = new Constraint(predicate);
-                TableStatistics tableStatistics = metadata.getTableStatistics(session, table, constraint);
-                long bytesScanned = 0;
-                // Only include stats for columns that are projected or used in a filter
-                Set<ColumnHandle> predicateColumns = predicate.getDomains().get().keySet();
-                Collection<ColumnHandle> projectedColumns = node.getAssignments().values();
-                for (Map.Entry<ColumnHandle, ColumnStatistics> entry : tableStatistics.getColumnStatistics().entrySet()) {
-                    if (!entry.getValue().getDataSize().isUnknown()
-                            && (predicateColumns.contains(entry.getKey()) || projectedColumns.contains(entry.getKey()))) {
-                        bytesScanned += entry.getValue().getDataSize().getValue();
-                    }
-                }
-                estBytesScanned = bytesScanned;
-            }
             context.addInputTableColumnInfo(new IoPlan.TableColumnInfo(
                     new CatalogSchemaTableName(
                             tableMetadata.getCatalogName().getCatalogName(),
                             tableMetadata.getTable().getSchemaName(),
                             tableMetadata.getTable().getTableName()),
-                    estBytesScanned,
                     parseConstraints(node.getTable(), predicate)));
             return null;
         }
