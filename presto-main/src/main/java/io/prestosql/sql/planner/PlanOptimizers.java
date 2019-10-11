@@ -92,6 +92,7 @@ import io.prestosql.sql.planner.iterative.rule.PushPredicateIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughExchange;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughUnion;
+import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughUnnest;
 import io.prestosql.sql.planner.iterative.rule.PushRemoteExchangeThroughAssignUniqueId;
 import io.prestosql.sql.planner.iterative.rule.PushSampleIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushTableWriteThroughUnion;
@@ -249,7 +250,8 @@ public class PlanOptimizers
         Set<Rule<?>> projectionPushdownRules = ImmutableSet.of(
                 new PushProjectionIntoTableScan(metadata, typeAnalyzer),
                 new PushProjectionThroughUnion(),
-                new PushProjectionThroughExchange());
+                new PushProjectionThroughExchange()
+                );
 
         IterativeOptimizer inlineProjections = new IterativeOptimizer(
                 ruleStats,
@@ -398,7 +400,8 @@ public class PlanOptimizers
                                 new InlineProjections(),
                                 new RemoveRedundantIdentityProjections(),
                                 new TransformCorrelatedSingleRowSubqueryToProject(),
-                                new RemoveAggregationInSemiJoin())),
+                                new RemoveAggregationInSemiJoin(),
+                                new PushProjectionThroughUnnest(metadata, typeAnalyzer))),
                 new CheckSubqueryNodesAreRewritten(),
 
                 // pushdown dereference

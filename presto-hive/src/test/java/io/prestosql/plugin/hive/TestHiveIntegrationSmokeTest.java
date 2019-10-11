@@ -160,6 +160,20 @@ public class TestHiveIntegrationSmokeTest
     }
 
     @Test
+    public void testUnnestWithTableScan()
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .build();
+        assertUpdate(admin,"create table nest_test(id int, a array(row(x varchar, y varchar))) WITH (format='PARQUET')");
+        assertUpdate(admin,"insert into nest_test values(1, array[row('a','b')])", 1);
+        assertUpdate(admin,"insert into nest_test values(2, array[row('b','c')])", 1);
+        assertUpdate(admin,"insert into nest_test values(3, array[row('d','e')])", 1);
+        assertQuery(admin,"select t.x from nest_test cross join unnest(a) as t", "select values('a'),('b'),('c')");
+        assertUpdate(admin, "DROP TABLE nest_test");
+    }
+
+    @Test
     public void testSchemaOperations()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())

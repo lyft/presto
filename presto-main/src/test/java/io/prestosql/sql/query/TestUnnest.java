@@ -35,6 +35,50 @@ public class TestUnnest
     }
 
     @Test
+    public void testUnnestOfUnnest()
+    {
+        assertions.assertQuery(
+                "SELECT a,x FROM (\n"
+                        + "SELECT *\n"
+                        + "FROM (SELECT * \n"
+                        + "FROM ( \n"
+                        + "VALUES \n"
+                        + "( \n"
+                        + " 1,array[ \n"
+                        + "          cast(row('A',\n"
+                        + "                   array[ \n"
+                        + "                         cast(row('a') as row (x varchar(1))), \n"
+                        + "                         cast(row('b') as row (x varchar(1))) \n"
+                        + "                        ]) as row(z varchar(1), y array(row(x varchar(1))))), \n"
+                        + "          cast(row('B',\n"
+                        + "                   array[ \n"
+                        + "                         cast(row('c') as row (x varchar(1))),\n"
+                        + "                         cast(row('d') as row (x varchar(1))) \n"
+                        + "                        ]) as row(z varchar(1), y array(row(x varchar(1))))) \n"
+                        + "         ]\n"
+                        + "), \n"
+                        + "( 2,array[\n"
+                        + "          cast(row('C', \n"
+                        + "                   array[\n"
+                        + "                         cast(row('e') as row (x varchar(1))),\n"
+                        + "                         cast(row('f') as row (x varchar(1))) \n"
+                        + "                        ]) as row(z varchar(1), y array(row(x varchar(1))))),\n"
+                        + "          cast(row('D',\n"
+                        + "                   array[ \n"
+                        + "                         cast(row('g') as row (x varchar(1))),\n"
+                        + "                         cast(row('h') as row (x varchar(1))) \n"
+                        + "                        ]) as row(z varchar(1), y array(row(x varchar(1))))) \n"
+                        + "         ]\n"
+                        + ")\n"
+                        + ") t(a,b) \n"
+                        + "CROSS JOIN UNNEST(b)\n"
+                        + ") CROSS JOIN UNNEST(y)\n"
+                        + ")\n",
+                "VALUES "
+                        + "(1, 'a'), (1, 'b'), (1, 'c'), (1, 'd'), (2, 'e'), (2, 'f'), (2, 'g'), (2, 'h')");
+    }
+
+    @Test
     public void testUnnestArrayRows()
     {
         assertions.assertQuery(
