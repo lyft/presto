@@ -111,7 +111,7 @@ IO:
 .. code-block:: none
 
 
-    presto:hive> EXPLAIN (TYPE IO, FORMAT JSON) INSERT INTO test_nation SELECT * FROM nation WHERE regionkey = 2;
+    presto:hive> EXPLAIN (TYPE IO, FORMAT JSON) INSERT INTO test_lineitem SELECT * FROM lineitem WHERE shipdate = '2020-02-01' AND quantity > 10;
                 Query Plan
     -----------------------------------
      {
@@ -120,47 +120,63 @@ IO:
            "catalog" : "hive",
            "schemaTable" : {
              "schema" : "tpch",
-             "table" : "nation"
+             "table" : "lineitem"
            }
          },
-         "columns" : [ {
-           "columnName" : "regionkey",
-           "type" : "bigint",
+         "columnConstraints" : [ {
+           "columnName" : "shipdate",
+           "type" : "varchar(10)",
            "domain" : {
              "nullsAllowed" : false,
              "ranges" : [ {
                "low" : {
-                 "value" : "2",
+                 "value" : "2020-02-01",
                  "bound" : "EXACTLY"
                },
                "high" : {
-                 "value" : "2",
+                 "value" : "2020-02-01",
                  "bound" : "EXACTLY"
                }
              } ]
            }
          } ],
+         "columnFilters" : [ {
+           "columnName" : "quantity",
+           "type" : "double",
+           "domain" : {
+             "nullsAllowed" : false,
+             "ranges" : [ {
+               "low" : {
+                 "value" : "10.0",
+                 "bound" : "ABOVE"
+               },
+               "high" : {
+                 "bound" : "BELOW"
+               }
+             } ]
+           }
+         } ],
          "estimate" : {
-           "outputRowCount" : 15000.0,
-           "outputSizeInBytes" : 1597294.0,
-           "cpuCost" : 1597294.0,
+           "outputRowCount" : 60175.0,
+           "outputSizeInBytes" : 8077041.0,
+           "cpuCost" : 8077041.0,
            "maxMemory" : 0.0,
            "networkCost" : 0.0
-         },
+         }
        } ],
        "outputTable" : {
          "catalog" : "hive",
          "schemaTable" : {
            "schema" : "tpch",
-           "table" : "test_nation"
+           "table" : "test_lineitem"
          }
        },
        "estimate" : {
-         "outputRowCount" : 15000.0,
-         "outputSizeInBytes" : 1597294.0,
-         "cpuCost" : 1597294.0,
+         "outputRowCount" : 49122.45
+         "outputSizeInBytes" : 6593502.86
+         "cpuCost" : 16154082.0,
          "maxMemory" : 0.0,
-         "networkCost" : 1597294.0
+         "networkCost" : 6593502.86
        }
      }
 

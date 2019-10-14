@@ -16,6 +16,9 @@ package io.prestosql.plugin.hive;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.airlift.json.JsonCodec;
+import io.airlift.json.JsonCodecFactory;
+import io.airlift.json.ObjectMapperProvider;
 import io.prestosql.Session;
 import io.prestosql.connector.CatalogName;
 import io.prestosql.cost.StatsAndCosts;
@@ -61,7 +64,9 @@ import io.prestosql.testing.MaterializedResult;
 import io.prestosql.testing.MaterializedRow;
 import io.prestosql.tests.AbstractTestIntegrationSmokeTest;
 import io.prestosql.tests.DistributedQueryRunner;
+import io.prestosql.type.TypeDeserializer;
 import org.apache.hadoop.fs.Path;
+import org.assertj.core.util.Sets;
 import org.intellij.lang.annotations.Language;
 import org.testng.annotations.Test;
 
@@ -112,6 +117,7 @@ import static io.prestosql.plugin.hive.HiveTableProperties.STORAGE_FORMAT_PROPER
 import static io.prestosql.plugin.hive.HiveTestUtils.TYPE_MANAGER;
 import static io.prestosql.plugin.hive.HiveUtil.columnExtraInfo;
 import static io.prestosql.plugin.hive.TestEventListenerPlugin.TestingEventListenerPlugin;
+import static io.prestosql.spi.predicate.Marker.Bound.ABOVE;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
 import static io.prestosql.spi.security.SelectedRole.Type.ROLE;
 import static io.prestosql.spi.type.BigintType.BIGINT;
@@ -464,7 +470,7 @@ public class TestHiveIntegrationSmokeTest
     }
 
     @Test
-    public void testIOExplain()
+    public void testIoExplain()
     {
         // Test IO explain with small number of discrete components.
         computeActual("CREATE TABLE test_orders WITH (partitioned_by = ARRAY['orderkey', 'processing']) AS SELECT custkey, orderkey, orderstatus = 'P' processing FROM orders WHERE orderkey < 3");
@@ -472,7 +478,7 @@ public class TestHiveIntegrationSmokeTest
         EstimatedStatsAndCost estimate = new EstimatedStatsAndCost(2.0, 40.0, 40.0, 0.0, 0.0);
         MaterializedResult result = computeActual("EXPLAIN (TYPE IO, FORMAT JSON) INSERT INTO test_orders SELECT custkey, orderkey, processing FROM test_orders WHERE custkey <= 10");
         assertEquals(
-                jsonCodec(IoPlan.class).fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
+                getIoPlanCodec().fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
                 new IoPlan(
                         ImmutableSet.of(
                                 new TableColumnInfo(
@@ -499,6 +505,16 @@ public class TestHiveIntegrationSmokeTest
                                                                         new FormattedRange(
                                                                                 new FormattedMarker(Optional.of("false"), EXACTLY),
                                                                                 new FormattedMarker(Optional.of("false"), EXACTLY)))))),
+                                        ImmutableSet.of(
+                                                new ColumnConstraint(
+                                                        "custkey",
+                                                        BIGINT.getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.empty(), ABOVE),
+                                                                                new FormattedMarker(Optional.of("10"), EXACTLY)))))),
                                         estimate)),
                         Optional.of(new CatalogSchemaTableName(catalog, "tpch", "test_orders")),
                         estimate));
@@ -511,7 +527,7 @@ public class TestHiveIntegrationSmokeTest
         estimate = new EstimatedStatsAndCost(55.0, 990.0, 990.0, 0.0, 0.0);
         result = computeActual("EXPLAIN (TYPE IO, FORMAT JSON) INSERT INTO test_orders SELECT custkey, orderkey + 10 FROM test_orders WHERE custkey <= 10");
         assertEquals(
-                jsonCodec(IoPlan.class).fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
+                getIoPlanCodec().fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
                 new IoPlan(
                         ImmutableSet.of(
                                 new TableColumnInfo(
@@ -526,9 +542,151 @@ public class TestHiveIntegrationSmokeTest
                                                                         new FormattedRange(
                                                                                 new FormattedMarker(Optional.of("1"), EXACTLY),
                                                                                 new FormattedMarker(Optional.of("199"), EXACTLY)))))),
+                                        ImmutableSet.of(
+                                                new ColumnConstraint(
+                                                        "custkey",
+                                                        BIGINT.getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.empty(), ABOVE),
+                                                                                new FormattedMarker(Optional.of("10"), EXACTLY)))))),
                                         estimate)),
                         Optional.of(new CatalogSchemaTableName(catalog, "tpch", "test_orders")),
                         estimate));
+
+        assertUpdate("DROP TABLE test_orders");
+    }
+
+    @Test
+    public void testIoExplainColumnFilters()
+    {
+        // Test IO explain with small number of discrete components.
+        computeActual("CREATE TABLE test_orders WITH (partitioned_by = ARRAY['orderkey']) AS SELECT custkey, orderstatus, orderkey FROM orders WHERE orderkey < 3");
+
+        EstimatedStatsAndCost estimate = new EstimatedStatsAndCost(2.0, 48.0, 48.0, 0.0, 0.0);
+        EstimatedStatsAndCost finalEstimate = new EstimatedStatsAndCost(0.0, 0.0, 96.0, 0.0, 0.0);
+        MaterializedResult result = computeActual("EXPLAIN (TYPE IO, FORMAT JSON) SELECT custkey, orderkey, orderstatus FROM test_orders WHERE custkey <= 10 and orderstatus='P'");
+        assertEquals(
+                getIoPlanCodec().fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
+                new IoPlan(
+                        ImmutableSet.of(
+                                new TableColumnInfo(
+                                        new CatalogSchemaTableName(catalog, "tpch", "test_orders"),
+                                        ImmutableSet.of(
+                                                new ColumnConstraint(
+                                                        "orderkey",
+                                                        BIGINT.getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("1"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("1"), EXACTLY)),
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("2"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("2"), EXACTLY)))))),
+                                        Sets.newLinkedHashSet(
+                                                new ColumnConstraint(
+                                                        "custkey",
+                                                        BIGINT.getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.empty(), ABOVE),
+                                                                                new FormattedMarker(Optional.of("10"), EXACTLY))))),
+                                                new ColumnConstraint(
+                                                        "orderstatus",
+                                                        VarcharType.createVarcharType(1).getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("P"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("P"), EXACTLY)))))),
+                                        estimate)),
+                        Optional.empty(),
+                        finalEstimate));
+        result = computeActual("EXPLAIN (TYPE IO, FORMAT JSON) SELECT custkey, orderkey, orderstatus FROM test_orders WHERE custkey <= 10 and (orderstatus='P' or orderstatus='S')");
+        assertEquals(
+                getIoPlanCodec().fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
+                new IoPlan(
+                        ImmutableSet.of(
+                                new TableColumnInfo(
+                                        new CatalogSchemaTableName(catalog, "tpch", "test_orders"),
+                                        ImmutableSet.of(
+                                                new ColumnConstraint(
+                                                        "orderkey",
+                                                        BIGINT.getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("1"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("1"), EXACTLY)),
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("2"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("2"), EXACTLY)))))),
+                                        Sets.newLinkedHashSet(
+                                                new ColumnConstraint(
+                                                        "orderstatus",
+                                                        VarcharType.createVarcharType(1).getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("P"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("P"), EXACTLY)),
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("S"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("S"), EXACTLY))))),
+                                                new ColumnConstraint(
+                                                        "custkey",
+                                                        BIGINT.getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.empty(), ABOVE),
+                                                                                new FormattedMarker(Optional.of("10"), EXACTLY)))))),
+                                        estimate)),
+                        Optional.empty(),
+                        finalEstimate));
+        result = computeActual("EXPLAIN (TYPE IO, FORMAT JSON) SELECT custkey, orderkey, orderstatus FROM test_orders WHERE custkey <= 10 and cast(orderstatus as integer) = 5");
+        assertEquals(
+                getIoPlanCodec().fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
+                new IoPlan(
+                        ImmutableSet.of(
+                                new TableColumnInfo(
+                                        new CatalogSchemaTableName(catalog, "tpch", "test_orders"),
+                                        ImmutableSet.of(
+                                                new ColumnConstraint(
+                                                        "orderkey",
+                                                        BIGINT.getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("1"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("1"), EXACTLY)),
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.of("2"), EXACTLY),
+                                                                                new FormattedMarker(Optional.of("2"), EXACTLY)))))),
+                                        ImmutableSet.of(
+                                                new ColumnConstraint(
+                                                        "custkey",
+                                                        BIGINT.getTypeSignature(),
+                                                        new FormattedDomain(
+                                                                false,
+                                                                ImmutableSet.of(
+                                                                        new FormattedRange(
+                                                                                new FormattedMarker(Optional.empty(), ABOVE),
+                                                                                new FormattedMarker(Optional.of("10"), EXACTLY)))))),
+                                        estimate)),
+                        Optional.empty(),
+                        finalEstimate));
 
         assertUpdate("DROP TABLE test_orders");
     }
@@ -577,6 +735,7 @@ public class TestHiveIntegrationSmokeTest
                                                                     new FormattedRange(
                                                                             new FormattedMarker(Optional.of(entry.getKey().toString()), EXACTLY),
                                                                             new FormattedMarker(Optional.of(entry.getKey().toString()), EXACTLY)))))),
+                                    ImmutableSet.of(),
                                     estimate)),
                             Optional.empty(),
                             estimate),
@@ -4610,6 +4769,13 @@ public class TestHiveIntegrationSmokeTest
             formats.add(new TestingHiveStorageFormat(session, hiveStorageFormat));
         }
         return formats.build();
+    }
+
+    private JsonCodec<IoPlan> getIoPlanCodec()
+    {
+        ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
+        objectMapperProvider.setJsonDeserializers(ImmutableMap.of(Type.class, new TypeDeserializer(getQueryRunner().getMetadata())));
+        return new JsonCodecFactory(objectMapperProvider).jsonCodec(IoPlan.class);
     }
 
     private static class TestingHiveStorageFormat

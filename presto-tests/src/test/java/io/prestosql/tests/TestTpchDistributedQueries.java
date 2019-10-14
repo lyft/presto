@@ -67,6 +67,7 @@ public class TestTpchDistributedQueries
                                                 new IoPlanPrinter.FormattedRange(
                                                         new IoPlanPrinter.FormattedMarker(Optional.of("P"), EXACTLY),
                                                         new IoPlanPrinter.FormattedMarker(Optional.of("P"), EXACTLY)))))),
+                ImmutableSet.of(),
                 scanEstimate);
         assertEquals(
                 jsonCodec(IoPlanPrinter.IoPlan.class).fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),

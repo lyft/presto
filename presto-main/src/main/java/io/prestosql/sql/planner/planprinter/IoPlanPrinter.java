@@ -31,10 +31,13 @@ import io.prestosql.spi.predicate.Marker;
 import io.prestosql.spi.predicate.Marker.Bound;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.type.Type;
+import io.prestosql.sql.planner.DomainTranslator;
 import io.prestosql.spi.type.TypeSignature;
 import io.prestosql.sql.planner.Plan;
+import io.prestosql.sql.planner.plan.FilterNode;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.PlanVisitor;
+import io.prestosql.sql.planner.plan.ProjectNode;
 import io.prestosql.sql.planner.plan.TableFinishNode;
 import io.prestosql.sql.planner.plan.TableScanNode;
 import io.prestosql.sql.planner.plan.TableWriterNode.CreateReference;
@@ -44,6 +47,7 @@ import io.prestosql.sql.planner.plan.TableWriterNode.InsertReference;
 import io.prestosql.sql.planner.plan.TableWriterNode.InsertTarget;
 import io.prestosql.sql.planner.plan.TableWriterNode.WriterTarget;
 import io.prestosql.sql.planner.planprinter.IoPlanPrinter.IoPlan.IoPlanBuilder;
+import io.prestosql.sql.tree.Expression;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -53,6 +57,7 @@ import java.util.Set;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.airlift.json.JsonCodec.jsonCodec;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
@@ -203,16 +208,19 @@ public class IoPlanPrinter
         {
             private final CatalogSchemaTableName table;
             private final Set<ColumnConstraint> columnConstraints;
+            private final Set<ColumnConstraint> columnFilters;
             private final EstimatedStatsAndCost estimate;
 
             @JsonCreator
             public TableColumnInfo(
                     @JsonProperty("table") CatalogSchemaTableName table,
                     @JsonProperty("columnConstraints") Set<ColumnConstraint> columnConstraints,
+                    @JsonProperty("columnFilters") Set<ColumnConstraint> columnFilters,
                     @JsonProperty("estimate") EstimatedStatsAndCost estimate)
             {
                 this.table = requireNonNull(table, "table is null");
                 this.columnConstraints = requireNonNull(columnConstraints, "columnConstraints is null");
+                this.columnFilters = requireNonNull(columnFilters, "columnFilters is null");
                 this.estimate = requireNonNull(estimate, "estimate is null");
             }
 
@@ -220,6 +228,12 @@ public class IoPlanPrinter
             public CatalogSchemaTableName getTable()
             {
                 return table;
+            }
+
+            @JsonProperty
+            public Set<ColumnConstraint> getColumnFilters()
+            {
+                return columnFilters;
             }
 
             @JsonProperty
@@ -246,13 +260,14 @@ public class IoPlanPrinter
                 TableColumnInfo o = (TableColumnInfo) obj;
                 return Objects.equals(table, o.table) &&
                         Objects.equals(columnConstraints, o.columnConstraints) &&
+                        Objects.equals(columnFilters, o.columnFilters) &&
                         Objects.equals(estimate, o.estimate);
             }
 
             @Override
             public int hashCode()
             {
-                return Objects.hash(table, columnConstraints, estimate);
+                return Objects.hash(table, columnConstraints, columnFilters, estimate);
             }
 
             @Override
@@ -261,6 +276,7 @@ public class IoPlanPrinter
                 return toStringHelper(this)
                         .add("table", table)
                         .add("columnConstraints", columnConstraints)
+                        .add("columnFilters", columnFilters)
                         .add("estimate", estimate)
                         .toString();
             }
@@ -601,19 +617,90 @@ public class IoPlanPrinter
         }
 
         @Override
-        public Void visitTableScan(TableScanNode node, IoPlanBuilder context)
+        public Void visitFilter(FilterNode node, IoPlanBuilder context)
         {
-            TableMetadata tableMetadata = metadata.getTableMetadata(session, node.getTable());
-            TupleDomain<ColumnHandle> predicate = metadata.getTableProperties(session, node.getTable()).getPredicate();
+            return visitScanFilterAndProjectInfo(node, Optional.of(node), Optional.empty(), context);
+        }
+
+        @Override
+        public Void visitProject(ProjectNode node, IoPlanBuilder context)
+        {
+            if (node.getSource() instanceof FilterNode) {
+                return visitScanFilterAndProjectInfo(node, Optional.of((FilterNode) node.getSource()), Optional.of(node), context);
+            }
+
+            return visitScanFilterAndProjectInfo(node, Optional.empty(), Optional.of(node), context);
+        }
+
+        private Void visitScanFilterAndProjectInfo(
+                PlanNode node,
+                Optional<FilterNode> filterNode,
+                Optional<ProjectNode> projectNode,
+                IoPlanBuilder context)
+        {
+            checkState(projectNode.isPresent() || filterNode.isPresent());
+
+            PlanNode sourceNode;
+            if (filterNode.isPresent()) {
+                sourceNode = filterNode.get().getSource();
+            }
+            else {
+                sourceNode = projectNode.get().getSource();
+            }
+
+            Optional<TableScanNode> scanNode;
+            if (sourceNode instanceof TableScanNode) {
+                scanNode = Optional.of((TableScanNode) sourceNode);
+            }
+            else {
+                scanNode = Optional.empty();
+            }
+
+            if (scanNode.isPresent() && filterNode.isPresent()) {
+                addConstraintsFromFilter(filterNode.get(), scanNode.get(), context);
+                return null;
+            }
+
+            sourceNode.accept(this, context);
+            return null;
+        }
+
+        private void addConstraintsFromFilter(FilterNode filterNode, TableScanNode tableScanNode, IoPlanBuilder context)
+        {
+            Expression predicate = filterNode.getPredicate();
+            DomainTranslator.ExtractionResult decomposedPredicate = DomainTranslator.fromPredicate(
+                    metadata,
+                    session,
+                    predicate,
+                    plan.getTypes());
+
+            TupleDomain<ColumnHandle> filterDomain = decomposedPredicate.getTupleDomain()
+                    .transform(tableScanNode.getAssignments()::get)
+                    .intersect(tableScanNode.getEnforcedConstraint());
+            addInputTableColumnInfo(tableScanNode, filterDomain, context);
+        }
+
+        private void addInputTableColumnInfo(TableScanNode node, TupleDomain<ColumnHandle> filters, IoPlanBuilder context)
+        {
+            TableHandle table = node.getTable();
+            TableMetadata tableMetadata = metadata.getTableMetadata(session, table);
+            TupleDomain<ColumnHandle> predicate = metadata.getTableProperties(session, table).getPredicate();
             EstimatedStatsAndCost estimatedStatsAndCost = getEstimatedStatsAndCost(node);
             context.addInputTableColumnInfo(
                     new IoPlan.TableColumnInfo(
-                        new CatalogSchemaTableName(
-                                tableMetadata.getCatalogName().getCatalogName(),
-                                tableMetadata.getTable().getSchemaName(),
-                                tableMetadata.getTable().getTableName()),
-                        parseConstraints(node.getTable(), predicate),
-                        estimatedStatsAndCost));
+                            new CatalogSchemaTableName(
+                                    tableMetadata.getCatalogName().getCatalogName(),
+                                    tableMetadata.getTable().getSchemaName(),
+                                    tableMetadata.getTable().getTableName()),
+                            parseConstraints(table, predicate),
+                            parseConstraints(table, filters),
+                            estimatedStatsAndCost));
+        }
+
+        @Override
+        public Void visitTableScan(TableScanNode node, IoPlanBuilder context)
+        {
+            addInputTableColumnInfo(node, TupleDomain.all(), context);
             return null;
         }
 
