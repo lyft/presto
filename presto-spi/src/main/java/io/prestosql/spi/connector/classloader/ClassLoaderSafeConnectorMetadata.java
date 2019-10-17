@@ -650,4 +650,12 @@ public class ClassLoaderSafeConnectorMetadata
             return delegate.getNestedColumnHandles(session, tableHandle, dereferences);
         }
     }
+
+    @Override
+    public Map<String, ColumnHandle> getNestedColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle, Map<String, List<String>> dereferences)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.getNestedColumnHandles(session, tableHandle, dereferences);
+        }
+    }
 }

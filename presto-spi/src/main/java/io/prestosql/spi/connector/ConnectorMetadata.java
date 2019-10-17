@@ -798,4 +798,10 @@ public interface ConnectorMetadata
     {
         return new HashMap<>();
     }
+
+    default Map<String, ColumnHandle> getNestedColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle, Map<String, List<String>> dereferences)
+    {
+        return new HashMap<>();
+    }
+
 }

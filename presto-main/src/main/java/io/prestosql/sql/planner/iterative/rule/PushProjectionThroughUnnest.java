@@ -312,7 +312,7 @@ public class PushProjectionThroughUnnest
         return builder.build();
     }
 
-    private Map<String,NestedColumn> transform(ListMultimap<Symbol, Symbol> original, BiMap<Symbol, String> mapBetweenSymbolAndTypeName)
+    private Map<String, List<String>> transform(ListMultimap<Symbol, Symbol> original, BiMap<Symbol, String> mapBetweenSymbolAndTypeName)
     {
         ImmutableMap.Builder<String, List<String>> builder = ImmutableMap.builder();
         for (Map.Entry<Symbol, Collection<Symbol>> entry : original.asMap().entrySet()) {
@@ -323,13 +323,7 @@ public class PushProjectionThroughUnnest
 
             builder.put(mapBetweenSymbolAndTypeName.get(entry.getKey()), listBuilder.build());
         }
-        Map<String, List<String>> map = builder.build();
-        Map<String, NestedColumn> nestedColumns = Maps.newHashMapWithExpectedSize(map.size());
-        for (Map.Entry<String, List<String>> entry : map.entrySet()) {
-            NestedColumn nestedColumn = new NestedColumn(Lists.newArrayList(Iterators.concat(Iterators.singletonIterator(entry.getKey()), entry.getValue().iterator())));
-            nestedColumns.put(entry.getKey(),nestedColumn);
-        }
-        return nestedColumns;
+        return builder.build();
     }
 
     @Override
@@ -346,9 +340,10 @@ public class PushProjectionThroughUnnest
         BiMap<Symbol, String> mapBetweenSymbolAndTypeName = getOriginalName(tableScanNode, unnestNode, usedUnnestSymbols, context.getSession(), tableScanNode.getTable());
 
         // Get new ColumnHandles using the Metadata API
-        Map<String,NestedColumn> mapBetweenTypeNameAndNestedColumn = transform(usedUnnestSymbols, mapBetweenSymbolAndTypeName);
-        //Map<String, ColumnHandle> prunedColumnHandles = metadata.getNestedColumnHandles(context.getSession(), tableScanNode.getTable(), nestedColumns);
-        Map<NestedColumn, ColumnHandle> prunedColumnHandles = metadata.getNestedColumnHandles(context.getSession(), tableScanNode.getTable(), mapBetweenTypeNameAndNestedColumn.values());
+        Map<String, ColumnHandle> prunedColumnHandles = metadata.getNestedColumnHandles(context.getSession(), tableScanNode.getTable(), transform(usedUnnestSymbols, mapBetweenSymbolAndTypeName));
+        if (prunedColumnHandles.isEmpty()) {
+            return Result.empty();
+        }
 
         // Generate new Symbols
         Map<Symbol, SymbolSet> newSymbols = generateNewSymbols(context.getSymbolAllocator().getTypes(), context.getSymbolAllocator(), unnestNode, usedUnnestSymbols, mapBetweenSymbolAndTypeName);
@@ -357,14 +352,10 @@ public class PushProjectionThroughUnnest
         Map<Symbol, ColumnHandle> assignments = tableScanNode.getAssignments();
         ImmutableMap.Builder<Symbol, ColumnHandle> newAssignmentBuilder = ImmutableMap.builder();
         for (Map.Entry<Symbol, ColumnHandle> entry : assignments.entrySet()) {
-            ColumnHandle columnHandle;
             if (newSymbols.containsKey(entry.getKey())) {
-                columnHandle = prunedColumnHandles.get(mapBetweenTypeNameAndNestedColumn.get(mapBetweenSymbolAndTypeName.get(entry.getKey())));
-                if (columnHandle == null) {
-                    return Result.empty();
-                }
                 newAssignmentBuilder.put(
-                        newSymbols.get(entry.getKey()).getSymbol(), columnHandle);
+                        newSymbols.get(entry.getKey()).getSymbol(),
+                        prunedColumnHandles.get(mapBetweenSymbolAndTypeName.get(entry.getKey())));
             }
             else {
                 newAssignmentBuilder.put(entry);

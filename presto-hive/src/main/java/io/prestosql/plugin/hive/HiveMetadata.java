@@ -89,6 +89,9 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.ql.exec.FileSinkOperator;
 import org.apache.hadoop.hive.serde2.OpenCSVSerde;
+import org.apache.hadoop.hive.serde2.typeinfo.ListTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.StructTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.mapred.JobConf;
 import org.joda.time.DateTimeZone;
 
@@ -686,6 +689,67 @@ public class HiveMetadata
             if (hiveColumnHandle != null) {
                 columnHandles.put(nestedColumn, new HiveColumnHandle(nestedColumn.getName(), childType.get(), childType.get().getTypeSignature(), hiveColumnHandle.getHiveColumnIndex(), hiveColumnHandle.getColumnType(), hiveColumnHandle.getComment(), Optional.of(nestedColumn)));
             }
+        }
+        return columnHandles.build();
+    }
+
+    @Override
+    // Only handle array of structure (columnHandle):
+    // array(struct(a,b,x))
+    public Map<String, ColumnHandle> getNestedColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle, Map<String, List<String>> dereferences)
+    {
+        SchemaTableName tableName = ((HiveTableHandle) tableHandle).getSchemaTableName();
+        Optional<Table> table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName());
+        if (!table.isPresent()) {
+            throw new TableNotFoundException(tableName);
+        }
+
+        Set<String> listOfColumns = dereferences.keySet();
+        List<HiveColumnHandle> regularHiveColumnHandles = getRegularColumnHandles(table.get()).stream()
+                .filter(x -> listOfColumns.contains(x.getName()))
+                .collect(toList());
+
+        if (regularHiveColumnHandles.isEmpty()) {
+            return ImmutableMap.of();
+        }
+
+        ImmutableMap.Builder<String, ColumnHandle> columnHandles = ImmutableMap.builder();
+        for (HiveColumnHandle hiveColumnHandle : regularHiveColumnHandles) {
+            HiveType t = hiveColumnHandle.getHiveType();
+
+            // Only handle array of structure:
+            // array(struct(a,b,x))
+            if (!(t.getTypeInfo() instanceof ListTypeInfo)) {
+                throw new PrestoException(INVALID_SCHEMA_PROPERTY, "HiveColumnHandle type is not ListTypeInfo");
+            }
+            ListTypeInfo listTypeInfo = (ListTypeInfo) t.getTypeInfo();
+
+            if (!(listTypeInfo.getListElementTypeInfo() instanceof StructTypeInfo)) {
+                throw new PrestoException(INVALID_SCHEMA_PROPERTY, "HiveColumnHandle type is not StructTypeInfo");
+            }
+            StructTypeInfo structTypeInfo = (StructTypeInfo) listTypeInfo.getListElementTypeInfo();
+
+            ArrayList<TypeInfo> allStructFieldTypeInfos = structTypeInfo.getAllStructFieldTypeInfos();
+            ArrayList<String> allStructFieldNames = structTypeInfo.getAllStructFieldNames();
+
+            ImmutableList.Builder<String> content = ImmutableList.builder();
+            for (int i = 0; i < allStructFieldTypeInfos.size(); i++) {
+                if (dereferences.get(hiveColumnHandle.getName()).contains(allStructFieldNames.get(i))) {
+                    content.add(allStructFieldNames.get(i) + ":" + allStructFieldTypeInfos.get(i).toString());
+                }
+            }
+            HiveType hiveType = HiveType.valueOf("array<struct<" + String.join(",", content.build()) + ">>");
+            columnHandles.put(
+                    hiveColumnHandle.getName(),
+                    new HiveColumnHandle(
+                            hiveColumnHandle.getName(),
+                            hiveType,
+                            hiveType.getTypeSignature(),
+                            hiveColumnHandle.getHiveColumnIndex(),
+                            REGULAR,
+                            hiveColumnHandle.getComment(),
+                            Optional.empty())
+                    );
         }
         return columnHandles.build();
     }

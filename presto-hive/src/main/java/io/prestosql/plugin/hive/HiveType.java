@@ -179,24 +179,18 @@ public final class HiveType
 
     public Optional<HiveType> findChildType(NestedColumn nestedColumn)
     {
-        TypeInfo outerTypeInfo = getTypeInfo();
-        StructTypeInfo structTypeInfo;
+        TypeInfo typeInfo = getTypeInfo();
         for (String part : nestedColumn.getRest()) {
-            TypeInfo typeInfo = outerTypeInfo;
-            if (typeInfo instanceof ListTypeInfo) {
-                typeInfo = ((ListTypeInfo) outerTypeInfo).getListElementTypeInfo();
-            }
-            Preconditions.checkArgument(typeInfo instanceof StructTypeInfo, "typeinfo is not struct type", outerTypeInfo);
-
-            structTypeInfo = (StructTypeInfo) typeInfo;
+            Preconditions.checkArgument(typeInfo instanceof StructTypeInfo, "typeinfo is not struct type", typeInfo);
+            StructTypeInfo structTypeInfo = (StructTypeInfo) typeInfo;
             try {
-                outerTypeInfo = structTypeInfo.getStructFieldTypeInfo(part);
+                typeInfo = structTypeInfo.getStructFieldTypeInfo(part);
             }
             catch (RuntimeException e) {
                 return Optional.empty();
             }
         }
-        return Optional.of(toHiveType(outerTypeInfo));
+        return Optional.of(toHiveType(typeInfo));
     }
 
     @JsonCreator
