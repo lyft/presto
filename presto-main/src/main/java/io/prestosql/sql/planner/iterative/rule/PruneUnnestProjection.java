@@ -13,6 +13,8 @@
  */
 package io.prestosql.sql.planner.iterative.rule;
 
+import com.google.common.collect.Iterators;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import io.prestosql.Session;
 import io.prestosql.matching.Capture;
@@ -20,12 +22,17 @@ import io.prestosql.matching.Captures;
 import io.prestosql.matching.Pattern;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.metadata.TableHandle;
+import io.prestosql.spi.NestedColumn;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
+import io.prestosql.spi.connector.ProjectionApplicationResult;
+import io.prestosql.spi.expression.ConnectorExpression;
+import io.prestosql.spi.expression.ConnectorExpressionTranslator;
 import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.RowType;
 import io.prestosql.spi.type.Type;
+import io.prestosql.sql.planner.LiteralEncoder;
 import io.prestosql.sql.planner.Symbol;
 import io.prestosql.sql.planner.SymbolAllocator;
 import io.prestosql.sql.planner.SymbolsExtractor;
@@ -33,9 +40,12 @@ import io.prestosql.sql.planner.TypeAnalyzer;
 import io.prestosql.sql.planner.TypeProvider;
 import io.prestosql.sql.planner.iterative.Rule;
 import io.prestosql.sql.planner.plan.Assignments;
+import io.prestosql.sql.planner.plan.JoinNode;
 import io.prestosql.sql.planner.plan.PlanNode;
+import io.prestosql.sql.planner.plan.PlanNodeId;
 import io.prestosql.sql.planner.plan.ProjectNode;
 import io.prestosql.sql.planner.plan.TableScanNode;
+import io.prestosql.sql.planner.plan.UnionNode;
 import io.prestosql.sql.planner.plan.UnnestNode;
 import io.prestosql.sql.tree.Expression;
 
@@ -51,37 +61,44 @@ import com.google.common.collect.Sets;
 import io.prestosql.sql.tree.SymbolReference;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.assertj.core.util.Lists;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.prestosql.matching.Capture.newCapture;
 import static io.prestosql.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
+import static io.prestosql.sql.planner.plan.Patterns.filter;
 import static io.prestosql.sql.planner.plan.Patterns.project;
 import static io.prestosql.sql.planner.plan.Patterns.source;
 import static io.prestosql.sql.planner.plan.Patterns.tableScan;
 import static io.prestosql.sql.planner.plan.Patterns.unnest;
+import static io.prestosql.matching.Pattern.typeOf;
 import static com.google.common.collect.ImmutableListMultimap.flatteningToImmutableListMultimap;
 
-public class PushProjectionThroughUnnest
+public class PruneUnnestProjection
         implements Rule<ProjectNode>
 {
     private static final Capture<UnnestNode> UNNEST = newCapture();
-    private static final Capture<TableScanNode> TABLE_SCAN = newCapture();
+    private static final Capture<ProjectNode> PROJECT = newCapture();
     private static final Pattern<ProjectNode> PATTERN = project()
             .with(source().matching(unnest().capturedAs(UNNEST)
-                    .with(source().matching(tableScan().capturedAs(TABLE_SCAN)))));
+                    .with(source().matching(project().capturedAs(PROJECT)))));
 
     private final Metadata metadata;
     private final TypeAnalyzer typeAnalyzer;
 
-    public PushProjectionThroughUnnest(Metadata metadata, TypeAnalyzer typeAnalyzer)
+    public PruneUnnestProjection(Metadata metadata, TypeAnalyzer typeAnalyzer)
     {
         this.metadata = metadata;
         this.typeAnalyzer = typeAnalyzer;
@@ -183,7 +200,7 @@ public class PushProjectionThroughUnnest
      * @param usedUnnestSymbols The nested columns which are being referenced by projectNode
      * @return The key is the new symbols and the value is the pruned child columns (original child symbols).
      */
-    private Map<Symbol, SymbolSet> generateNewSymbols(TypeProvider tp, SymbolAllocator symbolAllocator, UnnestNode unnestNode, ListMultimap<Symbol, Symbol> usedUnnestSymbols, BiMap<Symbol, String> symbolToOriginalName, Map<String, Type> projectionTypes)
+    private Map<Symbol, SymbolSet> generateNewSymbols(TypeProvider tp, SymbolAllocator symbolAllocator, UnnestNode unnestNode, ListMultimap<Symbol, Symbol> usedUnnestSymbols, BiMap<Symbol, String> symbolToOriginalName)
     {
         ImmutableMap.Builder<Symbol, SymbolSet> unnestSymbols = ImmutableMap.builder();
         // For each nested column handled by unnestNode
@@ -200,7 +217,7 @@ public class PushProjectionThroughUnnest
                     .collect(ImmutableList.toImmutableList());
 
             // Create a new symbol with pruned columns as the type
-            Symbol newSymbol = createPrunedSymbol(unnestColumn.getKey(), tp.get(unnestColumn.getKey()), usedSymbols, symbolAllocator, symbolToOriginalName, projectionTypes);
+            Symbol newSymbol = createPrunedSymbol(unnestColumn.getKey(), tp.get(unnestColumn.getKey()), usedSymbols, symbolAllocator, symbolToOriginalName);
             SymbolSet symbolSet = new SymbolSet(newSymbol, remaining);
             unnestSymbols.put(unnestColumn.getKey(), symbolSet);
         }
@@ -216,26 +233,16 @@ public class PushProjectionThroughUnnest
      * @param symbolAllocator SymbolAllocator for this session
      * @return A new symbol with pruned columns as the type
      */
-    private Symbol createPrunedSymbol(Symbol oriSymbol, Type originalType, List<Symbol> usedSymbols, SymbolAllocator symbolAllocator, BiMap<Symbol, String> symbolToOriginalName, Map<String, Type> projectionTypes)
+    private Symbol createPrunedSymbol(Symbol oriSymbol, Type originalType, List<Symbol> usedSymbols, SymbolAllocator symbolAllocator, BiMap<Symbol, String> symbolToOriginalName)
     {
         if (originalType instanceof ArrayType) {
             ArrayType arrayType = (ArrayType) originalType;
             if (arrayType.getElementType() instanceof RowType) {
                 RowType rowType = (RowType) arrayType.getElementType();
                 List<RowType.Field> fields = rowType.getFields().stream()
-                        .filter(field -> usedSymbols.contains(getSymbolName(symbolToOriginalName, field.getName().get())))
+                        .filter(field -> usedSymbols.contains(new Symbol(field.getName().get())))
                         .collect(Collectors.toList());
-
-                List<RowType.Field> overideFields = new ArrayList(fields.size());
-                for (RowType.Field field : fields) {
-                    Type overideType = projectionTypes.get(field.getName().get());
-                    if (overideType != null) {
-                        overideFields.add(new RowType.Field(field.getName(), overideType));
-                    } else {
-                        overideFields.add(field);
-                    }
-                }
-                return symbolAllocator.newSymbol(oriSymbol.getName(), new ArrayType(RowType.from(overideFields)));
+                return symbolAllocator.newSymbol(oriSymbol.getName(), new ArrayType(RowType.from(fields)));
             }
         }
         return oriSymbol;
@@ -276,6 +283,25 @@ public class PushProjectionThroughUnnest
 
         return builder.build();
     }
+
+//    private BiMap<Symbol, String> getOriginalName(ProjectNode projectNode, UnnestNode unnestNode, ListMultimap<Symbol, Symbol> usedUnnestSymbols, Session session, TableHandle tableHandle)
+//    {
+//        Assignments assignments = projectNode.getAssignments();
+//        ImmutableBiMap.Builder<Symbol, String> builder = ImmutableBiMap.builder();
+//        for (Map.Entry<Symbol, Collection<Symbol>> entry : usedUnnestSymbols.asMap().entrySet()) {
+//            Expression handle = assignments.get(entry.getKey());
+//            ColumnMetadata columnMetadata = metadata.getColumnMetadata(session, tableHandle, handle);
+//            if (!isRowInArray(columnMetadata.getType())) {
+//                continue;
+//            }
+//            List<RowType.Field> nestedTypes = extractNestedTypes(columnMetadata.getType());
+//            Map<Symbol, RowType.Field> originalName = getOriginalName(unnestNode, entry.getKey(), nestedTypes);
+//            originalName.forEach((key, value) -> builder.put(key, value.getName().get()));
+//            builder.put(entry.getKey(), columnMetadata.getName());
+//        }
+//
+//        return builder.build();
+//    }
 
     private ListMultimap<Symbol, Symbol> trimNotRowInArray(ListMultimap<Symbol, Symbol> usedUnnestSymbols, TypeProvider tp)
     {
@@ -323,96 +349,65 @@ public class PushProjectionThroughUnnest
     @Override
     public Result apply(ProjectNode parent, Captures captures, Context context)
     {
-        TableScanNode tableScanNode = captures.get(TABLE_SCAN);
         UnnestNode unnestNode = captures.get(UNNEST);
+        ProjectNode projectNode = captures.get(PROJECT);
 
         ListMultimap<Symbol, Symbol> usedUnnestSymbols = trimNotRowInArray(getUsedUnnestSymbols(parent, unnestNode), context.getSymbolAllocator().getTypes());
         if (usedUnnestSymbols.isEmpty()) {
             return Result.empty();
         }
-
-        BiMap<Symbol, String> mapBetweenSymbolAndTypeName = getOriginalName(tableScanNode, unnestNode, usedUnnestSymbols, context.getSession(), tableScanNode.getTable());
-
-        Map<String, Symbol> replaceSymbols = Maps.newHashMapWithExpectedSize(parent.getAssignments().getMap().keySet().size());
-        Map<String, Type> projectionTypes = Maps.newHashMapWithExpectedSize(parent.getAssignments().getMap().keySet().size());
-        Assignments.Builder newProjectAssignmentBuilder = Assignments.builder();
-        for (Map.Entry<Symbol,Expression> entry : parent.getAssignments().getMap().entrySet()) {
-            Type type = context.getSymbolAllocator().getTypes().get(entry.getKey());
-            projectionTypes.put(((SymbolReference)entry.getValue()).getName(), type);
-            replaceSymbols.put(((SymbolReference)entry.getValue()).getName(), entry.getKey());
-            newProjectAssignmentBuilder.putIdentity(entry.getKey());
-        }
-        Assignments newProjectAssignments = newProjectAssignmentBuilder.build();
-        // Get new ColumnHandles using the Metadata API
-        Map<String, ColumnHandle> prunedColumnHandles = metadata.getNestedColumnHandles(context.getSession(), tableScanNode.getTable(), transform(usedUnnestSymbols, mapBetweenSymbolAndTypeName), projectionTypes);
-        if (prunedColumnHandles.isEmpty()) {
-            return Result.empty();
-        }
-
+        //BiMap<Symbol, String> mapBetweenSymbolAndTypeName = getOriginalName(tableScanNode, unnestNode, usedUnnestSymbols, context.getSession(), tableScanNode.getTable());
         // Generate new Symbols
-        Map<Symbol, SymbolSet> newSymbols = generateNewSymbols(context.getSymbolAllocator().getTypes(), context.getSymbolAllocator(), unnestNode, usedUnnestSymbols, mapBetweenSymbolAndTypeName, projectionTypes);
-
-        // Rewrite assignments in tableScanNode
-        Map<Symbol, ColumnHandle> assignments = tableScanNode.getAssignments();
-        ImmutableMap.Builder<Symbol, ColumnHandle> newAssignmentBuilder = ImmutableMap.builder();
-        for (Map.Entry<Symbol, ColumnHandle> entry : assignments.entrySet()) {
+        Map<Symbol, SymbolSet> newSymbols = generateNewSymbols(context.getSymbolAllocator().getTypes(), context.getSymbolAllocator(), unnestNode, usedUnnestSymbols, null);
+        // Rewrite assignments in projectNode
+        Assignments assignments = projectNode.getAssignments();
+        Assignments.Builder newAssignmentBuilder = Assignments.builder();
+        for (Map.Entry<Symbol, Expression> entry : assignments.entrySet()) {
             if (newSymbols.containsKey(entry.getKey())) {
                 Symbol newSymbol = newSymbols.get(entry.getKey()).getSymbol();
-                String typeName = mapBetweenSymbolAndTypeName.get(entry.getKey());
-                ColumnHandle columnHandle = prunedColumnHandles.get(typeName);
                 newAssignmentBuilder.put(
                         newSymbol,
-                        columnHandle);
+                        entry.getValue());
             }
             else {
                 newAssignmentBuilder.put(entry);
             }
         }
-        Map<Symbol, ColumnHandle> newAssignments = newAssignmentBuilder.build();
+        Assignments newAssignments = newAssignmentBuilder.build();
 
-        // Rewrite tableScanNode
-        TableScanNode newTableScanNode = new TableScanNode(
-                context.getIdAllocator().getNextId(),
-                tableScanNode.getTable(),
-                new ArrayList<>(newAssignments.keySet()),
-                newAssignments,
-                tableScanNode.getEnforcedConstraint());
-        Map<Symbol, List<Symbol>> symbolMap = mergeUnnestSymbols(unnestNode, newSymbols, replaceSymbols);
+        // Rewrite ProjectNode
+        ProjectNode newProjectNode = new ProjectNode(context.getIdAllocator().getNextId(), projectNode.getSource(), newAssignments);
+        Map<Symbol, List<Symbol>> symbolMap = mergeUnnestSymbols(unnestNode, newSymbols);
+        // Rewrite UnnestNode
         PlanNode newUnnestNode = new UnnestNode(
                 context.getIdAllocator().getNextId(),
-                newTableScanNode,
+                newProjectNode,
                 unnestNode.getReplicateSymbols(),
                 symbolMap,
                 unnestNode.getOrdinalitySymbol());
-        ProjectNode newProjectNode = new ProjectNode(context.getIdAllocator().getNextId(), newUnnestNode, newProjectAssignments);
-
-        return Result.ofPlanNode(newProjectNode);
+        PlanNode newPlanNode = parent.replaceChildren(ImmutableList.of(newUnnestNode));
+        return Result.ofPlanNode(newPlanNode);
+//        BiMap<Symbol, String> mapBetweenSymbolAndTypeName = getOriginalName(tableScanNode, unnestNode, usedUnnestSymbols, context.getSession(), tableScanNode.getTable());
+//
+//        // Get new ColumnHandles using the Metadata API
+//        Map<String, ColumnHandle> prunedColumnHandles = metadata.getNestedColumnHandles(context.getSession(), tableScanNode.getTable(), transform(usedUnnestSymbols, mapBetweenSymbolAndTypeName));
+//        if (prunedColumnHandles.isEmpty()) {
+//            return Result.empty();
+//        }
+//
+//
     }
 
-    private List<Symbol> replaceSymbolList(List<Symbol> unnestSymbols, Map<String, Symbol> replaceSymbols)
-    {
-        List<Symbol> newUnnestSymbol = new ArrayList<>(unnestSymbols.size());
-        for (Symbol symbol : unnestSymbols) {
-          Symbol replaceSymbol = replaceSymbols.get(symbol.getName());
-          if (replaceSymbol != null) {
-            newUnnestSymbol.add(replaceSymbol);
-          } else {
-            newUnnestSymbol.add(symbol);
-          }
-        }
-        return newUnnestSymbol;
-    }
-
-    private Map<Symbol, List<Symbol>> mergeUnnestSymbols(UnnestNode unnestNode, Map<Symbol, SymbolSet> newSymbols, Map<String, Symbol> replaceSymbols)
+    private Map<Symbol, List<Symbol>> mergeUnnestSymbols(UnnestNode unnestNode, Map<Symbol, SymbolSet> newSymbols)
     {
         ImmutableMap.Builder<Symbol, List<Symbol>> builder = ImmutableMap.builder();
         for (Map.Entry<Symbol, List<Symbol>> unnestSymbol : unnestNode.getUnnestSymbols().entrySet()) {
             if (newSymbols.containsKey(unnestSymbol.getKey())) {
                 SymbolSet symbolSet = newSymbols.get(unnestSymbol.getKey());
-                builder.put(symbolSet.getSymbol(), replaceSymbolList(symbolSet.getSubSymbols(),replaceSymbols));
+                builder.put(symbolSet.getSymbol(), symbolSet.getSubSymbols());
             }
             else {
-                builder.put(unnestSymbol.getKey(), replaceSymbolList(unnestSymbol.getValue(),replaceSymbols));
+                builder.put(unnestSymbol.getKey(), unnestSymbol.getValue());
             }
         }
         return builder.build();

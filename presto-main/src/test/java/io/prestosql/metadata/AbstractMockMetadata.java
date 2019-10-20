@@ -659,7 +659,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public Map<String, ColumnHandle> getNestedColumnHandles(Session session, TableHandle tableHandle, Map<String, List<String>> dereferences)
+    public Map<String, ColumnHandle> getNestedColumnHandles(Session session, TableHandle tableHandle, Map<String, List<String>> dereferences, Map<String, Type> projectionTypes)
     {
         throw new UnsupportedOperationException();
     }

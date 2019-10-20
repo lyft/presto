@@ -696,7 +696,7 @@ public class HiveMetadata
     @Override
     // Only handle array of structure (columnHandle):
     // array(struct(a,b,x))
-    public Map<String, ColumnHandle> getNestedColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle, Map<String, List<String>> dereferences)
+    public Map<String, ColumnHandle> getNestedColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle, Map<String, List<String>> dereferences, Map<String, Type> projectionTypes)
     {
         SchemaTableName tableName = ((HiveTableHandle) tableHandle).getSchemaTableName();
         Optional<Table> table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName());
@@ -735,7 +735,13 @@ public class HiveMetadata
             ImmutableList.Builder<String> content = ImmutableList.builder();
             for (int i = 0; i < allStructFieldTypeInfos.size(); i++) {
                 if (dereferences.get(hiveColumnHandle.getName()).contains(allStructFieldNames.get(i))) {
-                    content.add(allStructFieldNames.get(i) + ":" + allStructFieldTypeInfos.get(i).toString());
+                    // TODO: instead of this toString(), get the name from the projection assignments and use that instead
+                    Type typeOveride = projectionTypes.get(allStructFieldNames.get(i));
+                    TypeInfo typeInfo = allStructFieldTypeInfos.get(i);
+                    if (typeOveride != null) {
+                        typeInfo = toHiveType(typeTranslator, typeOveride).getTypeInfo();
+                    }
+                    content.add(allStructFieldNames.get(i) + ":" + typeInfo.toString());
                 }
             }
             HiveType hiveType = HiveType.valueOf("array<struct<" + String.join(",", content.build()) + ">>");
