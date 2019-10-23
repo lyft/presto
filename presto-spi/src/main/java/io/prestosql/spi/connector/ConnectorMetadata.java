@@ -25,8 +25,8 @@ import io.prestosql.spi.security.RoleGrant;
 import io.prestosql.spi.statistics.ComputedStatistics;
 import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.statistics.TableStatisticsMetadata;
-
 import io.prestosql.spi.type.Type;
+
 import javax.annotation.Nullable;
 
 import java.util.Collection;
@@ -804,5 +804,4 @@ public interface ConnectorMetadata
     {
         return new HashMap<>();
     }
-
 }

@@ -132,11 +132,6 @@ public final class ColumnarRow
      */
     public Block getField(int index)
     {
-        try {
-            return fields[index];
-            } catch (ArrayIndexOutOfBoundsException e) {
-            System.out.println("here");
-            throw e;
-        }
+        return fields[index];
     }
 }

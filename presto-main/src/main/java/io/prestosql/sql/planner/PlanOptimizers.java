@@ -75,6 +75,7 @@ import io.prestosql.sql.planner.iterative.rule.PruneSemiJoinFilteringSourceColum
 import io.prestosql.sql.planner.iterative.rule.PruneTableScanColumns;
 import io.prestosql.sql.planner.iterative.rule.PruneTopNColumns;
 import io.prestosql.sql.planner.iterative.rule.PruneUnnestProjection;
+import io.prestosql.sql.planner.iterative.rule.PruneUnnestTableScan;
 import io.prestosql.sql.planner.iterative.rule.PruneValuesColumns;
 import io.prestosql.sql.planner.iterative.rule.PruneWindowColumns;
 import io.prestosql.sql.planner.iterative.rule.PushAggregationThroughOuterJoin;
@@ -93,7 +94,6 @@ import io.prestosql.sql.planner.iterative.rule.PushPredicateIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughExchange;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughUnion;
-import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughUnnest;
 import io.prestosql.sql.planner.iterative.rule.PushRemoteExchangeThroughAssignUniqueId;
 import io.prestosql.sql.planner.iterative.rule.PushSampleIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushTableWriteThroughUnion;
@@ -251,8 +251,7 @@ public class PlanOptimizers
         Set<Rule<?>> projectionPushdownRules = ImmutableSet.of(
                 new PushProjectionIntoTableScan(metadata, typeAnalyzer),
                 new PushProjectionThroughUnion(),
-                new PushProjectionThroughExchange()
-                );
+                new PushProjectionThroughExchange());
 
         IterativeOptimizer inlineProjections = new IterativeOptimizer(
                 ruleStats,
@@ -402,8 +401,8 @@ public class PlanOptimizers
                                 new RemoveRedundantIdentityProjections(),
                                 new TransformCorrelatedSingleRowSubqueryToProject(),
                                 new RemoveAggregationInSemiJoin(),
-                                new PruneUnnestProjection(metadata, typeAnalyzer),
-                                new PushProjectionThroughUnnest(metadata, typeAnalyzer))),
+                                new PruneUnnestProjection(metadata),
+                                new PruneUnnestTableScan(metadata))),
                 new CheckSubqueryNodesAreRewritten(),
 
                 // pushdown dereference

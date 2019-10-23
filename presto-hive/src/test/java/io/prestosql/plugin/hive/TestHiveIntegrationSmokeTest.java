@@ -165,11 +165,11 @@ public class TestHiveIntegrationSmokeTest
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
                 .build();
-        assertUpdate(admin,"create table nest_test(id int, a array(row(x varchar, y varchar))) WITH (format='PARQUET')");
-        assertUpdate(admin,"insert into nest_test values(1, array[row('a','b')])", 1);
-        assertUpdate(admin,"insert into nest_test values(2, array[row('b','c')])", 1);
-        assertUpdate(admin,"insert into nest_test values(3, array[row('d','e')])", 1);
-        assertQuery(admin,"select t.x from nest_test cross join unnest(a) as t", "select * from unnest(array['a','b','d'])");
+        assertUpdate(admin, "create table nest_test(id int, a array(row(x varchar, y varchar))) WITH (format='PARQUET')");
+        assertUpdate(admin, "insert into nest_test values(1, array[row('a','b')])", 1);
+        assertUpdate(admin, "insert into nest_test values(2, array[row('b','c')])", 1);
+        assertUpdate(admin, "insert into nest_test values(3, array[row('d','e')])", 1);
+        assertQuery(admin, "select t.x from nest_test cross join unnest(a) as t", "select * from unnest(array['a','b','d'])");
         assertUpdate(admin, "DROP TABLE nest_test");
     }
 
@@ -179,11 +179,53 @@ public class TestHiveIntegrationSmokeTest
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
                 .build();
-        assertUpdate(admin,"create table nest_test(id int, b array(row(a array(row(x varchar, y varchar)),e array(row(x varchar, y varchar)))), c array(row(d array(row(x varchar, y varchar))))) WITH (format='PARQUET')");
-        assertUpdate(admin,"insert into nest_test(id,b) values(1, array[row(array[row('a','b')],array[row('c','d')])])", 1);
-        assertUpdate(admin,"insert into nest_test(id,b) values(2, array[row(array[row('e','f')],array[row('g','h')])])", 1);
-        assertUpdate(admin,"insert into nest_test(id,b) values(3, array[row(array[row('i','j')],array[row('k','l')])])", 1);
-        assertQuery(admin,"select x from (select a from nest_test cross join unnest(b)) cross join unnest(a)", "select * from unnest(array['a','e','i'])");
+        assertUpdate(admin, "create table nest_test(id int, b array(row(a array(row(x varchar, y varchar)),e array(row(x varchar, y varchar)))), c array(row(d array(row(x varchar, y varchar))))) WITH (format='PARQUET')");
+        assertUpdate(admin, "insert into nest_test(id,b) values(1, array[row(array[row('a','b')],array[row('c','d')])])", 1);
+        assertUpdate(admin, "insert into nest_test(id,b) values(2, array[row(array[row('e','f')],array[row('g','h')])])", 1);
+        assertUpdate(admin, "insert into nest_test(id,b) values(3, array[row(array[row('i','j')],array[row('k','l')])])", 1);
+        assertQuery(admin, "select x from (select a from nest_test cross join unnest(b)) cross join unnest(a)", "select * from unnest(array['a','e','i'])");
+        assertUpdate(admin, "DROP TABLE nest_test");
+    }
+
+    @Test
+    public void testMultiUnnestWithNestedColumn()
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .build();
+        assertUpdate(admin, "create table nest_test(id int, b array(row(a array(row (m row(n row(x varchar, y varchar)))),e array(row(x varchar, y varchar)))), c array(row(d array(row(x varchar, y varchar))))) WITH (format='PARQUET')");
+        assertUpdate(admin, "insert into nest_test(id,b) values(1, array[row(array[row(row(row('a','b')))],array[row('c','d')])])", 1);
+        assertUpdate(admin, "insert into nest_test(id,b) values(2, array[row(array[row(row(row('e','f')))],array[row('g','h')])])", 1);
+        assertUpdate(admin, "insert into nest_test(id,b) values(3, array[row(array[row(row(row('i','j')))],array[row('k','l')])])", 1);
+        assertQuery(admin, "select m.n.x from (select a from nest_test cross join unnest(b)) cross join unnest(a)", "select * from unnest(array['a','e','i'])");
+        assertUpdate(admin, "DROP TABLE nest_test");
+    }
+
+    @Test
+    public void testMultiUnnest2WithTableScan()
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .build();
+        assertUpdate(admin, "create table nest_test(id int, b array(row(a array(row(x varchar, y varchar)),e array(row(x varchar, y varchar)))), c array(row(d array(row(x varchar, y varchar))))) WITH (format='PARQUET')");
+        assertUpdate(admin, "insert into nest_test(id,b) values(1, array[row(array[row('a','b')],array[row('c','d')])])", 1);
+        assertUpdate(admin, "insert into nest_test(id,b) values(2, array[row(array[row('e','f')],array[row('g','h')])])", 1);
+        assertUpdate(admin, "insert into nest_test(id,b) values(3, array[row(array[row('i','j')],array[row('k','l')])])", 1);
+        assertQuery(admin, "select y as xyz from (select e from nest_test cross join unnest(b)) cross join unnest(e)", "select * from unnest(array['d','h','l'])");
+        assertUpdate(admin, "DROP TABLE nest_test");
+    }
+
+    @Test
+    public void testMultiUnnestAggregation()
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .build();
+        assertUpdate(admin, "create table nest_test(id int, b array(row(a array(row(x varchar, y varchar)),e array(row(x varchar, y varchar)))), c array(row(d array(row(x varchar, y varchar))))) WITH (format='PARQUET')");
+        assertUpdate(admin, "insert into nest_test(id,b) values(1, array[row(array[row('a','b')],array[row('c','d')])])", 1);
+        assertUpdate(admin, "insert into nest_test(id,b) values(2, array[row(array[row('e','f')],array[row('g','h')])])", 1);
+        assertUpdate(admin, "insert into nest_test(id,b) values(3, array[row(array[row('i','j')],array[row('k','l')])])", 1);
+        assertQuery(admin, "select count(*) from (select e from nest_test cross join unnest(b)) cross join unnest(e)", "select 3");
         assertUpdate(admin, "DROP TABLE nest_test");
     }
 

@@ -754,8 +754,7 @@ public class HiveMetadata
                             hiveColumnHandle.getHiveColumnIndex(),
                             REGULAR,
                             hiveColumnHandle.getComment(),
-                            Optional.empty())
-                    );
+                            Optional.empty()));
         }
         return columnHandles.build();
     }

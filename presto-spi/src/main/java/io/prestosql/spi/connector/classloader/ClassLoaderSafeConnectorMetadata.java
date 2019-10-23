@@ -50,8 +50,8 @@ import io.prestosql.spi.security.RoleGrant;
 import io.prestosql.spi.statistics.ComputedStatistics;
 import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.statistics.TableStatisticsMetadata;
-
 import io.prestosql.spi.type.Type;
+
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
