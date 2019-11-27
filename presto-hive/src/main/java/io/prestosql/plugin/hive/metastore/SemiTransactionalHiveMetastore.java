@@ -1137,12 +1137,12 @@ public class SemiTransactionalHiveMetastore
             committer.executeAlterTableOperations();
             committer.executeAlterPartitionOperations();
             committer.executeAddPartitionOperations();
-            committer.executeUpdateStatisticsOperations();
+//            committer.executeUpdateStatisticsOperations();
         }
         catch (Throwable t) {
             committer.cancelUnstartedAsyncRenames();
 
-            committer.undoUpdateStatisticsOperations();
+//            committer.undoUpdateStatisticsOperations();
             committer.undoAddPartitionOperations();
             committer.undoAddTableOperations();
 
