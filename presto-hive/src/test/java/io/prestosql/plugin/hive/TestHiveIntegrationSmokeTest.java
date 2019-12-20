@@ -92,7 +92,6 @@ import static io.prestosql.SystemSessionProperties.COLOCATED_JOIN;
 import static io.prestosql.SystemSessionProperties.CONCURRENT_LIFESPANS_PER_NODE;
 import static io.prestosql.SystemSessionProperties.DYNAMIC_SCHEDULE_FOR_GROUPED_EXECUTION;
 import static io.prestosql.SystemSessionProperties.GROUPED_EXECUTION;
-
 import static io.prestosql.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
 import static io.prestosql.SystemSessionProperties.QUERY_PARTITION_FILTER_REQUIRED;
 import static io.prestosql.plugin.hive.HiveColumnHandle.BUCKET_COLUMN_NAME;
@@ -212,34 +211,6 @@ public class TestHiveIntegrationSmokeTest
         assertUpdate(admin, "insert into nest_test(id,h) values(2, row(array[row(array[row('e','f')],array[row('g','h')])],array[row(array[row('a','b')])]))", 1);
         assertUpdate(admin, "insert into nest_test(id,h) values(3, row(array[row(array[row('i','j')],array[row('k','l')])],array[row(array[row('a','b')])]))", 1);
         assertQuery(admin, "select x from (select d from nest_test cross join unnest(h.c)) cross join unnest(d)", "select * from unnest(array['a','e','i'])", assertPrunedLayout("array<struct<d:array<struct<x:string,y:string>>>>"));
-        assertUpdate(admin, "DROP TABLE nest_test");
-    }
-
-    @Test
-    public void testMultiNestedColumnUnnestWithTableScan2()
-    {
-        Session admin = Session.builder(getQueryRunner().getDefaultSession())
-                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
-                .build();
-        assertUpdate(
-                admin,
-                "create table nest_test(\n"
-                        + "id integer,\n"
-                        + "a varchar,\n"
-                        + "b varchar,\n"
-                        + "h row (\n"
-                        + "  c array(row(d array(row(x varchar, y varchar)),e array(row(x varchar, y varchar)))),\n"
-                        + "  f array(row(g array(row(x varchar, y varchar))))))\n"
-                        + "WITH (format='PARQUET')");
-        assertUpdate(admin, "insert into nest_test(id,h) values(1, row(array[row(array[row('a','b')],array[row('c','d')])],array[row(array[row('a','b')])]))", 1);
-        assertUpdate(admin, "insert into nest_test(id,h) values(2, row(array[row(array[row('e','f')],array[row('g','h')])],array[row(array[row('a','b')])]))", 1);
-        assertUpdate(admin, "insert into nest_test(id,h) values(3, row(array[row(array[row('i','j')],array[row('k','l')])],array[row(array[row('a','b')])]))", 1);
-        assertQuery(admin, "with complex_type_array as (select h.c as c from nest_test), unnest_l1 as (select d from complex_type_array cross join unnest(c)), unnest_l2 as (select x from unnest_l1 cross join unnest(d)) select * from unnest_l2",
-                "select * from unnest(array['a','e','i'])",
-                assertPrunedLayout("array<struct<d:array<struct<x:string,y:string>>>>"));
-        assertQuery(admin, "with complex_type_array as (select h.c as c from nest_test), unnest_l1 as (select d from complex_type_array cross join unnest(c)), unnest_l2 as (select x from unnest_l1 cross join unnest(d)) select count(*) from unnest_l2",
-                "select 3",
-                assertPrunedLayout("array<struct<d:array<struct<x:string,y:string>>>>"));
         assertUpdate(admin, "DROP TABLE nest_test");
     }
 
