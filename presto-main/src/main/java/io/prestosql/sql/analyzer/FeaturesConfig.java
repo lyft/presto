@@ -129,6 +129,7 @@ public class FeaturesConfig
     private DataSize filterAndProjectMinOutputPageSize = new DataSize(500, KILOBYTE);
     private int filterAndProjectMinOutputPageRowCount = 256;
     private int maxGroupingSets = 2048;
+    private boolean queryPartitionFilterRequired;
 
     public enum JoinReorderingStrategy
     {
@@ -917,5 +918,17 @@ public class FeaturesConfig
     {
         this.skipRedundantSort = value;
         return this;
+    }
+
+    @Config("query-partition-filter-required")
+    public FeaturesConfig setQueryPartitionFilterRequired(boolean queryPartitionFilterRequired)
+    {
+        this.queryPartitionFilterRequired = queryPartitionFilterRequired;
+        return this;
+    }
+
+    public boolean isQueryPartitionFilterRequired()
+    {
+        return queryPartitionFilterRequired;
     }
 }

@@ -121,6 +121,7 @@ public final class SystemSessionProperties
     public static final String ENABLE_DYNAMIC_FILTERING = "enable_dynamic_filtering";
     public static final String QUERY_MAX_MEMORY_PER_NODE = "query_max_memory_per_node";
     public static final String QUERY_MAX_TOTAL_MEMORY_PER_NODE = "query_max_total_memory_per_node";
+    public static final String QUERY_PARTITION_FILTER_REQUIRED = "query_partition_filter_required";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -523,7 +524,12 @@ public final class SystemSessionProperties
                         QUERY_MAX_TOTAL_MEMORY_PER_NODE,
                         "Maximum amount of total memory a query can use per node",
                         nodeMemoryConfig.getMaxQueryTotalMemoryPerNode(),
-                        true));
+                        true),
+                booleanProperty(
+                        QUERY_PARTITION_FILTER_REQUIRED,
+                        "Require filter on partition column",
+                        featuresConfig.isQueryPartitionFilterRequired(),
+                        false));
     }
 
     public List<PropertyMetadata<?>> getSessionProperties()
@@ -929,5 +935,10 @@ public final class SystemSessionProperties
     public static DataSize getQueryMaxTotalMemoryPerNode(Session session)
     {
         return session.getSystemProperty(QUERY_MAX_TOTAL_MEMORY_PER_NODE, DataSize.class);
+    }
+
+    public static boolean isQueryPartitionFilterRequired(Session session)
+    {
+        return session.getSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, Boolean.class);
     }
 }
