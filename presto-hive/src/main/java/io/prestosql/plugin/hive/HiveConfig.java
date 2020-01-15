@@ -161,6 +161,8 @@ public class HiveConfig
     private long fileStatusCacheMaxSize = 1000 * 1000;
     private List<String> fileStatusCacheTables = ImmutableList.of();
 
+    private boolean queryPartitionFilterRequired;
+
     public int getMaxInitialSplits()
     {
         return maxInitialSplits;
@@ -1263,5 +1265,18 @@ public class HiveConfig
     public String getTemporaryStagingDirectoryPath()
     {
         return temporaryStagingDirectoryPath;
+    }
+
+    @Config("hive.query-partition-filter-required")
+    @ConfigDescription("Require filter on at least one partition column")
+    public HiveConfig setQueryPartitionFilterRequired(boolean queryPartitionFilterRequired)
+    {
+        this.queryPartitionFilterRequired = queryPartitionFilterRequired;
+        return this;
+    }
+
+    public boolean isQueryPartitionFilterRequired()
+    {
+        return queryPartitionFilterRequired;
     }
 }

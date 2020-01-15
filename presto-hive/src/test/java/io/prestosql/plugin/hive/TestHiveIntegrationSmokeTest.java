@@ -29,6 +29,9 @@ import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.Constraint;
+import io.prestosql.spi.eventlistener.QueryCompletedEvent;
+import io.prestosql.spi.eventlistener.QueryCreatedEvent;
+import io.prestosql.spi.eventlistener.SplitCompletedEvent;
 import io.prestosql.spi.security.Identity;
 import io.prestosql.spi.security.SelectedRole;
 import io.prestosql.spi.type.BigintType;
@@ -73,6 +76,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -93,7 +98,6 @@ import static io.prestosql.SystemSessionProperties.CONCURRENT_LIFESPANS_PER_NODE
 import static io.prestosql.SystemSessionProperties.DYNAMIC_SCHEDULE_FOR_GROUPED_EXECUTION;
 import static io.prestosql.SystemSessionProperties.GROUPED_EXECUTION;
 import static io.prestosql.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
-import static io.prestosql.SystemSessionProperties.QUERY_PARTITION_FILTER_REQUIRED;
 import static io.prestosql.plugin.hive.HiveColumnHandle.BUCKET_COLUMN_NAME;
 import static io.prestosql.plugin.hive.HiveColumnHandle.PATH_COLUMN_NAME;
 import static io.prestosql.plugin.hive.HiveQueryRunner.HIVE_CATALOG;
@@ -106,6 +110,7 @@ import static io.prestosql.plugin.hive.HiveTableProperties.PARTITIONED_BY_PROPER
 import static io.prestosql.plugin.hive.HiveTableProperties.STORAGE_FORMAT_PROPERTY;
 import static io.prestosql.plugin.hive.HiveTestUtils.TYPE_MANAGER;
 import static io.prestosql.plugin.hive.HiveUtil.columnExtraInfo;
+import static io.prestosql.plugin.hive.TestEventListenerPlugin.TestingEventListenerPlugin;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
 import static io.prestosql.spi.security.SelectedRole.Type.ROLE;
 import static io.prestosql.spi.type.BigintType.BIGINT;
@@ -148,6 +153,7 @@ public class TestHiveIntegrationSmokeTest
     private final String catalog;
     private final Session bucketedSession;
     private final TypeTranslator typeTranslator;
+    private final EventsBuilder generatedEvents = new EventsBuilder();
 
     @SuppressWarnings("unused")
     public TestHiveIntegrationSmokeTest()
@@ -232,11 +238,11 @@ public class TestHiveIntegrationSmokeTest
     }
 
     @Test
-    public void testLackOfPartitionFilterNotAllowed()
+    public void testLackOfPartitionFilterNotAllowed() throws Exception
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
-                .setSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, "true")
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
                 .build();
 
         assertUpdate(
@@ -248,7 +254,10 @@ public class TestHiveIntegrationSmokeTest
                         + "ds varchar)"
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
         assertUpdate(admin, "insert into partition_test(id,a,ds) values(1, 'a','a')", 1);
-        assertQueryFails(admin, "select id from partition_test where a = 'a'", "Filter on partition column required.*");
+        getQueryRunner().installPlugin(new TestingEventListenerPlugin(generatedEvents));
+        generatedEvents.initialize(2);
+        assertQueryFails(admin, "select id from partition_test where a = 'a'", "Filter required on tpch\\.partition_test for at least one partition column.*");
+        generatedEvents.waitForEvents(10);
         assertUpdate(admin, "DROP TABLE partition_test");
     }
 
@@ -256,8 +265,8 @@ public class TestHiveIntegrationSmokeTest
     public void testPartitionFilterRemoved()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
-                .setSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, "true")
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
                 .build();
 
         assertUpdate(
@@ -277,8 +286,8 @@ public class TestHiveIntegrationSmokeTest
     public void testPartitionFilterIncluded()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
-                .setSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, "true")
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
                 .build();
 
         assertUpdate(
@@ -298,8 +307,8 @@ public class TestHiveIntegrationSmokeTest
     public void testPartitionFilterIncluded2()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
-                .setSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, "true")
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
                 .build();
 
         assertUpdate(
@@ -319,8 +328,8 @@ public class TestHiveIntegrationSmokeTest
     public void testPartitionFilterInferred()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
-                .setSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, "true")
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
                 .build();
 
         assertUpdate(
@@ -350,8 +359,8 @@ public class TestHiveIntegrationSmokeTest
     public void testJoinPartitionedWithMissingPartitionFilter()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
-                .setSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, "true")
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
                 .build();
 
         assertUpdate(
@@ -381,8 +390,8 @@ public class TestHiveIntegrationSmokeTest
     public void testJoinWithPartitionFilterOnPartionedTable()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
-                .setSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, "true")
                 .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
                 .build();
 
         assertUpdate(
@@ -4606,6 +4615,62 @@ public class TestHiveIntegrationSmokeTest
         {
             this.type = requireNonNull(type, "type is null");
             this.estimate = requireNonNull(estimate, "estimate is null");
+        }
+    }
+
+    static class EventsBuilder
+    {
+        private ImmutableList.Builder<QueryCreatedEvent> queryCreatedEvents;
+        private ImmutableList.Builder<QueryCompletedEvent> queryCompletedEvents;
+        private ImmutableList.Builder<SplitCompletedEvent> splitCompletedEvents;
+
+        private CountDownLatch eventsLatch;
+
+        public synchronized void initialize(int numEvents)
+        {
+            queryCreatedEvents = ImmutableList.builder();
+            queryCompletedEvents = ImmutableList.builder();
+            splitCompletedEvents = ImmutableList.builder();
+
+            eventsLatch = new CountDownLatch(numEvents);
+        }
+
+        public void waitForEvents(int timeoutSeconds)
+                throws InterruptedException
+        {
+            eventsLatch.await(timeoutSeconds, TimeUnit.SECONDS);
+            assertEquals(eventsLatch.getCount(), 0, "Expected number of events didn't occur:");
+        }
+
+        public synchronized void addQueryCreated(QueryCreatedEvent event)
+        {
+            queryCreatedEvents.add(event);
+            eventsLatch.countDown();
+        }
+
+        public synchronized void addQueryCompleted(QueryCompletedEvent event)
+        {
+            queryCompletedEvents.add(event);
+            eventsLatch.countDown();
+        }
+
+        public synchronized void addSplitCompleted(SplitCompletedEvent event)
+        {
+        }
+
+        public List<QueryCreatedEvent> getQueryCreatedEvents()
+        {
+            return queryCreatedEvents.build();
+        }
+
+        public List<QueryCompletedEvent> getQueryCompletedEvents()
+        {
+            return queryCompletedEvents.build();
+        }
+
+        public List<SplitCompletedEvent> getSplitCompletedEvents()
+        {
+            return splitCompletedEvents.build();
         }
     }
 }

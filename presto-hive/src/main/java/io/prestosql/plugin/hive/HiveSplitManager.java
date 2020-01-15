@@ -27,6 +27,7 @@ import io.prestosql.plugin.hive.metastore.Partition;
 import io.prestosql.plugin.hive.metastore.SemiTransactionalHiveMetastore;
 import io.prestosql.plugin.hive.metastore.Table;
 import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.StandardErrorCode;
 import io.prestosql.spi.VersionEmbedder;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorSplitManager;
@@ -50,6 +51,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -169,8 +171,18 @@ public class HiveSplitManager
             ConnectorSession session,
             ConnectorTableHandle tableHandle,
             SplitSchedulingStrategy splitSchedulingStrategy)
+            throws PrestoException
     {
         HiveTableHandle hiveTable = (HiveTableHandle) tableHandle;
+        if (HiveSessionProperties.isQueryPartitionFilterRequired(session)) {
+            List<HiveColumnHandle> partitionColumns = hiveTable.getPartitionColumns();
+            if (!partitionColumns.isEmpty() && hiveTable.getEnforcedConstraint().isAll()) {
+                String partitionColumnNames = partitionColumns.stream().map(n -> n.getName()).collect(Collectors.joining(","));
+                throw new PrestoException(
+                        StandardErrorCode.QUERY_REJECTED,
+                        String.format("Filter required on %s.%s for at least one partition column: %s ", hiveTable.getSchemaName(), hiveTable.getTableName(), partitionColumnNames));
+            }
+        }
         SchemaTableName tableName = hiveTable.getSchemaTableName();
 
         // get table metadata
