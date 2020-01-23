@@ -126,7 +126,6 @@ public class TestEventListener
         return result;
     }
 
-
     @Test
     public void testConstantQuery()
             throws Exception
