@@ -110,7 +110,6 @@ import static io.prestosql.plugin.hive.HiveTableProperties.PARTITIONED_BY_PROPER
 import static io.prestosql.plugin.hive.HiveTableProperties.STORAGE_FORMAT_PROPERTY;
 import static io.prestosql.plugin.hive.HiveTestUtils.TYPE_MANAGER;
 import static io.prestosql.plugin.hive.HiveUtil.columnExtraInfo;
-import static io.prestosql.plugin.hive.TestEventListenerPlugin.TestingEventListenerPlugin;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
 import static io.prestosql.spi.security.SelectedRole.Type.ROLE;
 import static io.prestosql.spi.type.BigintType.BIGINT;
@@ -153,7 +152,6 @@ public class TestHiveIntegrationSmokeTest
     private final String catalog;
     private final Session bucketedSession;
     private final TypeTranslator typeTranslator;
-    private final EventsBuilder generatedEvents = new EventsBuilder();
 
     @SuppressWarnings("unused")
     public TestHiveIntegrationSmokeTest()
@@ -254,10 +252,7 @@ public class TestHiveIntegrationSmokeTest
                         + "ds varchar)"
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
         assertUpdate(admin, "insert into partition_test(id,a,ds) values(1, 'a','a')", 1);
-        getQueryRunner().installPlugin(new TestingEventListenerPlugin(generatedEvents));
-        generatedEvents.initialize(2);
         assertQueryFails(admin, "select id from partition_test where a = 'a'", "Filter required on tpch\\.partition_test for at least one partition column.*");
-        generatedEvents.waitForEvents(10);
         assertUpdate(admin, "DROP TABLE partition_test");
     }
 
@@ -4615,62 +4610,6 @@ public class TestHiveIntegrationSmokeTest
         {
             this.type = requireNonNull(type, "type is null");
             this.estimate = requireNonNull(estimate, "estimate is null");
-        }
-    }
-
-    static class EventsBuilder
-    {
-        private ImmutableList.Builder<QueryCreatedEvent> queryCreatedEvents;
-        private ImmutableList.Builder<QueryCompletedEvent> queryCompletedEvents;
-        private ImmutableList.Builder<SplitCompletedEvent> splitCompletedEvents;
-
-        private CountDownLatch eventsLatch;
-
-        public synchronized void initialize(int numEvents)
-        {
-            queryCreatedEvents = ImmutableList.builder();
-            queryCompletedEvents = ImmutableList.builder();
-            splitCompletedEvents = ImmutableList.builder();
-
-            eventsLatch = new CountDownLatch(numEvents);
-        }
-
-        public void waitForEvents(int timeoutSeconds)
-                throws InterruptedException
-        {
-            eventsLatch.await(timeoutSeconds, TimeUnit.SECONDS);
-            assertEquals(eventsLatch.getCount(), 0, "Expected number of events didn't occur:");
-        }
-
-        public synchronized void addQueryCreated(QueryCreatedEvent event)
-        {
-            queryCreatedEvents.add(event);
-            eventsLatch.countDown();
-        }
-
-        public synchronized void addQueryCompleted(QueryCompletedEvent event)
-        {
-            queryCompletedEvents.add(event);
-            eventsLatch.countDown();
-        }
-
-        public synchronized void addSplitCompleted(SplitCompletedEvent event)
-        {
-        }
-
-        public List<QueryCreatedEvent> getQueryCreatedEvents()
-        {
-            return queryCreatedEvents.build();
-        }
-
-        public List<QueryCompletedEvent> getQueryCompletedEvents()
-        {
-            return queryCompletedEvents.build();
-        }
-
-        public List<SplitCompletedEvent> getSplitCompletedEvents()
-        {
-            return splitCompletedEvents.build();
         }
     }
 }
