@@ -93,7 +93,7 @@ public class ClientOptions
     public boolean password;
 
     @Option(name = "--use-okta", title = "Okta login", description = "OpenID login with Okta")
-    public boolean useOkta = true;
+    public boolean useOkta;
 
     @Option(name = "--source", title = "source", description = "Name of source making query")
     public String source = "presto-cli";
