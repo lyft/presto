@@ -47,8 +47,8 @@ public class ClientOptions
     private static final Splitter NAME_VALUE_SPLITTER = Splitter.on('=').limit(2);
     private static final CharMatcher PRINTABLE_ASCII = CharMatcher.inRange((char) 0x21, (char) 0x7E); // spaces are not allowed
 
-    @Option(name = "--server", title = "server", description = "Presto server location (default: https://prestoproxy-production.lyft.net)")
-    public String server = "https://prestoproxy-production.lyft.net";
+    @Option(name = "--server", title = "server", description = "Presto server location (default: https://presto-proxy.lyft.net)")
+    public String server = "https://presto-proxy.lyft.net";
 
     @Option(name = "--krb5-service-principal-pattern", title = "krb5 remote service principal pattern", description = "Remote kerberos service principal pattern (default: ${SERVICE}@${HOST})")
     public String krb5ServicePrincipalPattern = "${SERVICE}@${HOST}";

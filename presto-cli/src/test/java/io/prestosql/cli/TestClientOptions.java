@@ -30,7 +30,7 @@ public class TestClientOptions
     public void testDefault()
     {
         ClientSession session = new ClientOptions().toClientSession();
-        assertEquals(session.getServer().toString(), "https://prestoproxy-production.lyft.net");
+        assertEquals(session.getServer().toString(), "https://presto-proxy.lyft.net");
         assertEquals(session.getSource(), "presto-cli");
     }
 
