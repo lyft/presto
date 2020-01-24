@@ -40,13 +40,11 @@ class LyftOktaAuthenticationHandler
     private static final String REDIRECT_URI = "http://localhost:5000/authorization-code/callback";
     private static final String STATE = "LOGIN";
 
-    private static final String CLIENT_ID = "0oacv9m4dpomHGs2I1t7";
+    private static final String CLIENT_ID = "0oacleef3oX94aQxj1t7";
     private static final String BASE_URL = "https://lyft.okta.com";
     private static final String ISSUER = BASE_URL + "/oauth2/default";
     private static final String TOKEN_ENDPOINT = ISSUER + "/v1/token";
     private static final String LOGIN_ENDPOINT = ISSUER + "/v1/authorize";
-
-    private static final int LENGTH_CODE_VERIFIER = 64;
 
     private Server server;
     private User user;
@@ -62,7 +60,7 @@ class LyftOktaAuthenticationHandler
         this.user = user;
 
         SecureRandom random = new SecureRandom();
-        byte[] codeVerifierBytes = new byte[LENGTH_CODE_VERIFIER];
+        byte[] codeVerifierBytes = new byte[64];
         random.nextBytes(codeVerifierBytes);
         codeVerifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifierBytes);
 
