@@ -168,8 +168,8 @@ public class QueryRunner
             Optional<String> accessToken)
     {
         if (accessToken.isPresent()) {
-            checkArgument(session.getServer().getScheme().equalsIgnoreCase("https"),
-                    "Authentication using an access token requires HTTPS to be enabled");
+//            checkArgument(session.getServer().getScheme().equalsIgnoreCase("https"),
+//                    "Authentication using an access token requires HTTPS to be enabled");
             clientBuilder.addInterceptor(tokenAuth(accessToken.get()));
         }
     }

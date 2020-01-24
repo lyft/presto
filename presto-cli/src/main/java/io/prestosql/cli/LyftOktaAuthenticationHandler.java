@@ -66,24 +66,24 @@ class LyftOktaAuthenticationHandler
     {
         baseRequest.setHandled(true);
 
-        if (target.equalsIgnoreCase("/authorization-code/callback")) {
+        if (target.equalsIgnoreCase("/hello")) {
+            handleHello(baseRequest, response);
+        }
+        else if (target.equalsIgnoreCase("/authorization-code/callback")) {
             handleCallback(request, response);
         }
         else if (target.equalsIgnoreCase("/login")) {
             handleLogin(response);
         }
-        else {
-            handle404(baseRequest, response);
-        }
     }
 
-    private void handle404(Request baseRequest, HttpServletResponse response)
+    private void handleHello(Request baseRequest, HttpServletResponse response)
             throws IOException
     {
         response.setContentType("text/html;charset=utf-8");
-        response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        response.setStatus(HttpServletResponse.SC_OK);
         baseRequest.setHandled(true);
-        response.getWriter().println("<h1>Page Doesn't Exist</h1>");
+        response.getWriter().println("<h1>Hello World</h1>");
     }
 
     private void handleCallback(HttpServletRequest request, HttpServletResponse response)
