@@ -15,9 +15,6 @@ package io.prestosql.cli;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.hash.HashCode;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import io.airlift.log.Logger;
 import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
@@ -31,8 +28,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
-import java.security.SecureRandom;
-import java.util.Base64;
 
 class LyftOktaAuthenticationHandler
         extends AbstractHandler
@@ -41,16 +36,20 @@ class LyftOktaAuthenticationHandler
     private static final String STATE = "LOGIN";
 
     private static final String CLIENT_ID = "0oacleef3oX94aQxj1t7";
+    private static final String CLIENT_SECRET = "WEwnl6HTSZbwBak5UGuXbq1ygc7SxLxGzMONL-4k";
     private static final String BASE_URL = "https://lyft.okta.com";
     private static final String ISSUER = BASE_URL + "/oauth2/default";
     private static final String TOKEN_ENDPOINT = ISSUER + "/v1/token";
     private static final String LOGIN_ENDPOINT = ISSUER + "/v1/authorize";
+    private static final String LOGIN_URL = LOGIN_ENDPOINT + "?"
+            + "client_id=" + CLIENT_ID + "&"
+            + "redirect_uri=" + REDIRECT_URI + "&"
+            + "response_type=code&"
+            + "scope=openid&"
+            + "state=" + STATE;
 
     private Server server;
     private User user;
-
-    private String codeVerifier;
-    private String codeChallenge;
 
     private static final Logger log = Logger.get(LyftOktaAuthenticationHandler.class);
 
@@ -58,28 +57,6 @@ class LyftOktaAuthenticationHandler
     {
         this.server = server;
         this.user = user;
-
-        SecureRandom random = new SecureRandom();
-        byte[] codeVerifierBytes = new byte[64];
-        random.nextBytes(codeVerifierBytes);
-        codeVerifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifierBytes);
-
-        // Now create code challenge
-        HashFunction sha256HashFunction = Hashing.sha256();
-        HashCode codeVerifierDigest = sha256HashFunction.hashBytes(codeVerifier.getBytes());
-        codeChallenge = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifierDigest.asBytes());
-    }
-
-    private String getOktaLoginUrl()
-    {
-        return LOGIN_ENDPOINT + "?"
-                + "client_id=" + CLIENT_ID + "&"
-                + "redirect_uri=" + REDIRECT_URI + "&"
-                + "response_type=code&"
-                + "scope=openid&"
-                + "code_challenge_method=S256&"
-                + "code_challenge=" + codeChallenge + "&"
-                + "state=" + STATE;
     }
 
     @Override
@@ -123,9 +100,9 @@ class LyftOktaAuthenticationHandler
         RequestBody formBody = new FormBody.Builder()
                 .add("grant_type", "authorization_code")
                 .add("code", code)
-                .add("code_verifier", codeVerifier)
                 .add("redirect_uri", REDIRECT_URI)
                 .add("client_id", CLIENT_ID)
+                .add("client_secret", CLIENT_SECRET)
                 .build();
 
         okhttp3.Request accessTokenRequest = new okhttp3.Request.Builder()
@@ -174,6 +151,6 @@ class LyftOktaAuthenticationHandler
     private void handleLogin(HttpServletResponse response)
             throws IOException
     {
-        response.sendRedirect(getOktaLoginUrl());
+        response.sendRedirect(LOGIN_URL);
     }
 }
