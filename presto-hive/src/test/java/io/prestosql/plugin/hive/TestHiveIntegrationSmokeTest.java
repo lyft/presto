@@ -29,6 +29,9 @@ import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.Constraint;
+import io.prestosql.spi.eventlistener.QueryCompletedEvent;
+import io.prestosql.spi.eventlistener.QueryCreatedEvent;
+import io.prestosql.spi.eventlistener.SplitCompletedEvent;
 import io.prestosql.spi.security.Identity;
 import io.prestosql.spi.security.SelectedRole;
 import io.prestosql.spi.type.BigintType;
@@ -73,6 +76,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -106,6 +111,7 @@ import static io.prestosql.plugin.hive.HiveTableProperties.PARTITIONED_BY_PROPER
 import static io.prestosql.plugin.hive.HiveTableProperties.STORAGE_FORMAT_PROPERTY;
 import static io.prestosql.plugin.hive.HiveTestUtils.TYPE_MANAGER;
 import static io.prestosql.plugin.hive.HiveUtil.columnExtraInfo;
+import static io.prestosql.plugin.hive.TestEventListenerPlugin.TestingEventListenerPlugin;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
 import static io.prestosql.spi.security.SelectedRole.Type.ROLE;
 import static io.prestosql.spi.type.BigintType.BIGINT;
@@ -148,6 +154,7 @@ public class TestHiveIntegrationSmokeTest
     private final String catalog;
     private final Session bucketedSession;
     private final TypeTranslator typeTranslator;
+    private final EventsBuilder generatedEvents = new EventsBuilder();
 
     @SuppressWarnings("unused")
     public TestHiveIntegrationSmokeTest()
@@ -229,6 +236,36 @@ public class TestHiveIntegrationSmokeTest
             HiveColumnHandle hiveHandle = (HiveColumnHandle) handle;
             assertEquals(expectedType, hiveHandle.getHiveType().toString());
         };
+    }
+
+    @Test
+    public void testLackOfPartitionFilterInExplain() throws Exception
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setSystemProperty(QUERY_PARTITION_FILTER_REQUIRED, "true")
+                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .build();
+
+        getQueryRunner().installPlugin(new TestingEventListenerPlugin(generatedEvents));
+        generatedEvents.initialize(2);
+        assertUpdate(
+                admin,
+                "create table partition_test(\n"
+                        + "id integer,\n"
+                        + "a varchar,\n"
+                        + "b varchar,\n"
+                        + "ds varchar)"
+                        + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
+        generatedEvents.waitForEvents(10);
+        generatedEvents.initialize(2);
+        assertUpdate(admin, "insert into partition_test(id,a,ds) values(1, 'a','a')", 1);
+        generatedEvents.waitForEvents(10);
+        generatedEvents.initialize(2);
+        assertQueryFails(admin, "explain (type io) select id from partition_test where a = 'a'", "Filter required on tpch\\.partition_test for at least one partition column.*");
+        generatedEvents.waitForEvents(10);
+        generatedEvents.initialize(2);
+        assertUpdate(admin, "DROP TABLE partition_test");
+        generatedEvents.waitForEvents(10);
     }
 
     @Test
@@ -4606,6 +4643,62 @@ public class TestHiveIntegrationSmokeTest
         {
             this.type = requireNonNull(type, "type is null");
             this.estimate = requireNonNull(estimate, "estimate is null");
+        }
+    }
+
+    static class EventsBuilder
+    {
+        private ImmutableList.Builder<QueryCreatedEvent> queryCreatedEvents;
+        private ImmutableList.Builder<QueryCompletedEvent> queryCompletedEvents;
+        private ImmutableList.Builder<SplitCompletedEvent> splitCompletedEvents;
+
+        private CountDownLatch eventsLatch;
+
+        public synchronized void initialize(int numEvents)
+        {
+            queryCreatedEvents = ImmutableList.builder();
+            queryCompletedEvents = ImmutableList.builder();
+            splitCompletedEvents = ImmutableList.builder();
+
+            eventsLatch = new CountDownLatch(numEvents);
+        }
+
+        public void waitForEvents(int timeoutSeconds)
+                throws InterruptedException
+        {
+            eventsLatch.await(timeoutSeconds, TimeUnit.SECONDS);
+            assertEquals(eventsLatch.getCount(), 0, "Expected number of events didn't occur:");
+        }
+
+        public synchronized void addQueryCreated(QueryCreatedEvent event)
+        {
+            queryCreatedEvents.add(event);
+            eventsLatch.countDown();
+        }
+
+        public synchronized void addQueryCompleted(QueryCompletedEvent event)
+        {
+            queryCompletedEvents.add(event);
+            eventsLatch.countDown();
+        }
+
+        public synchronized void addSplitCompleted(SplitCompletedEvent event)
+        {
+        }
+
+        public List<QueryCreatedEvent> getQueryCreatedEvents()
+        {
+            return queryCreatedEvents.build();
+        }
+
+        public List<QueryCompletedEvent> getQueryCompletedEvents()
+        {
+            return queryCompletedEvents.build();
+        }
+
+        public List<SplitCompletedEvent> getSplitCompletedEvents()
+        {
+            return splitCompletedEvents.build();
         }
     }
 }
