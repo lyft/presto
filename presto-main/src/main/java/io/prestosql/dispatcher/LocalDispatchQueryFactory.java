@@ -28,6 +28,7 @@ import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.execution.warnings.WarningCollectorFactory;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.security.AccessControl;
+import io.prestosql.server.BasicQueryInfo;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.resourcegroups.ResourceGroupId;
 import io.prestosql.sql.tree.Statement;
@@ -38,7 +39,9 @@ import javax.inject.Inject;
 import java.util.Map;
 import java.util.Optional;
 
+import static io.airlift.concurrent.MoreFutures.addExceptionCallback;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.prestosql.util.Failures.toFailure;
 import static io.prestosql.util.StatementUtils.isTransactionControlStatement;
 import static java.util.Objects.requireNonNull;
 
@@ -116,6 +119,20 @@ public class LocalDispatchQueryFactory
             }
 
             return queryExecutionFactory.createQueryExecution(preparedQuery, stateMachine, slug, warningCollector);
+        });
+        // Make sure QueryCompletedEvent occurs
+        addExceptionCallback(queryExecutionFuture, throwable -> {
+            FailedDispatchQuery failedDispatchQuery = new FailedDispatchQuery(
+                    session,
+                    query,
+                    preparedQuery.getPrepareSql(),
+                    locationFactory.createQueryLocation(session.getQueryId()),
+                    Optional.of(resourceGroup.getRoot()),
+                    throwable,
+                    executor);
+
+            BasicQueryInfo queryInfo = failedDispatchQuery.getBasicQueryInfo();
+            queryMonitor.queryImmediateFailureEvent(queryInfo, toFailure(throwable));
         });
 
         return new LocalDispatchQuery(
