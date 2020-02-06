@@ -358,7 +358,7 @@ public class HiveMetadata
         HiveTableHandle table = handle;
         return partitionValuesList
                 .map(values -> partitionManager.getPartitions(table, values))
-                .map(result -> partitionManager.applyPartitionResult(table, result))
+                .map(result -> partitionManager.applyPartitionResult(table, result, Optional.empty()))
                 .orElse(table);
     }
 
@@ -1848,7 +1848,7 @@ public class HiveMetadata
         checkArgument(!handle.getAnalyzePartitionValues().isPresent() || constraint.getSummary().isAll(), "Analyze should not have a constraint");
 
         HivePartitionResult partitionResult = partitionManager.getPartitions(metastore, handle, constraint);
-        HiveTableHandle newHandle = partitionManager.applyPartitionResult(handle, partitionResult);
+        HiveTableHandle newHandle = partitionManager.applyPartitionResult(handle, partitionResult, Optional.of(constraint));
 
         if (handle.getPartitions().equals(newHandle.getPartitions()) &&
                 handle.getCompactEffectivePredicate().equals(newHandle.getCompactEffectivePredicate()) &&

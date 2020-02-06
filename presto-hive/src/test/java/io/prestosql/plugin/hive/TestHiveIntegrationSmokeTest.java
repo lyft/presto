@@ -115,7 +115,6 @@ import static io.prestosql.plugin.hive.HiveTableProperties.PARTITIONED_BY_PROPER
 import static io.prestosql.plugin.hive.HiveTableProperties.STORAGE_FORMAT_PROPERTY;
 import static io.prestosql.plugin.hive.HiveTestUtils.TYPE_MANAGER;
 import static io.prestosql.plugin.hive.HiveUtil.columnExtraInfo;
-import static io.prestosql.plugin.hive.TestEventListenerPlugin.TestingEventListenerPlugin;
 import static io.prestosql.spi.predicate.Marker.Bound.ABOVE;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
 import static io.prestosql.spi.security.SelectedRole.Type.ROLE;
@@ -253,15 +252,18 @@ public class TestHiveIntegrationSmokeTest
 
         assertUpdate(
                 admin,
-                "create table partition_test(\n"
+                "create table partition_test1(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
                         + "ds varchar)"
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
-        assertUpdate(admin, "insert into partition_test(id,a,ds) values(1, 'a','a')", 1);
-        assertQueryFails(admin, "select id from partition_test where a = 'a'", "Filter required on tpch\\.partition_test for at least one partition column.*");
-        assertUpdate(admin, "DROP TABLE partition_test");
+        assertUpdate(admin, "insert into partition_test1(id,a,ds) values(1, 'a','a')", 1);
+        String query = "select id from partition_test1 where a = 'a'";
+        String msgRegExp = "Filter required on tpch\\.partition_test1 for at least one partition column:.*";
+        assertQueryFails(admin, query, msgRegExp);
+        assertQueryFails(admin, "explain " + query, msgRegExp);
+        assertUpdate(admin, "DROP TABLE partition_test1");
     }
 
     @Test
@@ -274,15 +276,15 @@ public class TestHiveIntegrationSmokeTest
 
         assertUpdate(
                 admin,
-                "create table partition_test(\n"
+                "create table partition_test2(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
                         + "ds varchar)"
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
-        assertUpdate(admin, "insert into partition_test(id,a,ds) values(1, 'a','a')", 1);
-        assertQueryFails(admin, "select id from partition_test where ds is not null or ds is null", "Filter on partition column required.*");
-        assertUpdate(admin, "DROP TABLE partition_test");
+        assertUpdate(admin, "insert into partition_test2(id,a,ds) values(1, 'a','a')", 1);
+        assertQueryFails(admin, "select id from partition_test2 where ds is not null or ds is null", "Filter required on tpch\\.partition_test2 for at least one partition column:.*");
+        assertUpdate(admin, "DROP TABLE partition_test2");
     }
 
     @Test
@@ -295,15 +297,17 @@ public class TestHiveIntegrationSmokeTest
 
         assertUpdate(
                 admin,
-                "create table partition_test(\n"
+                "create table partition_test3(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
                         + "ds varchar)"
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
-        assertUpdate(admin, "insert into partition_test(id,a,ds) values(1, 'a','a')", 1);
-        assertQuery(admin, "select id from partition_test where ds = 'a'", "select 1");
-        assertUpdate(admin, "DROP TABLE partition_test");
+        assertUpdate(admin, "insert into partition_test3(id,a,ds) values(1, 'a','a')", 1);
+        String query = "select id from partition_test3 where ds = 'a'";
+        assertQuery(admin, query, "select 1");
+        computeActual(admin, "explain " + query);
+        assertUpdate(admin, "DROP TABLE partition_test3");
     }
 
     @Test
@@ -316,15 +320,15 @@ public class TestHiveIntegrationSmokeTest
 
         assertUpdate(
                 admin,
-                "create table partition_test(\n"
+                "create table partition_test4(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
                         + "ds varchar)"
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
-        assertUpdate(admin, "insert into partition_test(id,a,ds) values(1, 'a','a')", 1);
-        assertQuery(admin, "select id from partition_test where ds is not null", "select 1");
-        assertUpdate(admin, "DROP TABLE partition_test");
+        assertUpdate(admin, "insert into partition_test4(id,a,ds) values(1, 'a','a')", 1);
+        assertQuery(admin, "select id from partition_test4 where ds is not null", "select 1");
+        assertUpdate(admin, "DROP TABLE partition_test4");
     }
 
     @Test
@@ -337,7 +341,7 @@ public class TestHiveIntegrationSmokeTest
 
         assertUpdate(
                 admin,
-                "create table partition_test1(\n"
+                "create table partition_test5(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
@@ -345,17 +349,17 @@ public class TestHiveIntegrationSmokeTest
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
         assertUpdate(
                 admin,
-                "create table partition_test2(\n"
+                "create table partition_test6(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
                         + "ds varchar)"
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
-        assertUpdate(admin, "insert into partition_test1(id,a,ds) values(1, 'a','a')", 1);
-        assertUpdate(admin, "insert into partition_test2(id,a,ds) values(1, 'a','a')", 1);
-        assertQuery(admin, "select a.id, b.id from partition_test1 a join partition_test2 b on (a.ds = b.ds) where a.ds = 'a'", "select 1,1");
-        assertUpdate(admin, "DROP TABLE partition_test1");
-        assertUpdate(admin, "DROP TABLE partition_test2");
+        assertUpdate(admin, "insert into partition_test5(id,a,ds) values(1, 'a','a')", 1);
+        assertUpdate(admin, "insert into partition_test6(id,a,ds) values(1, 'a','a')", 1);
+        assertQuery(admin, "select a.id, b.id from partition_test5 a join partition_test6 b on (a.ds = b.ds) where a.ds = 'a'", "select 1,1");
+        assertUpdate(admin, "DROP TABLE partition_test5");
+        assertUpdate(admin, "DROP TABLE partition_test6");
     }
 
     @Test
@@ -368,7 +372,7 @@ public class TestHiveIntegrationSmokeTest
 
         assertUpdate(
                 admin,
-                "create table partition_test1(\n"
+                "create table partition_test7(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
@@ -376,17 +380,17 @@ public class TestHiveIntegrationSmokeTest
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
         assertUpdate(
                 admin,
-                "create table partition_test2(\n"
+                "create table partition_test8(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
                         + "ds varchar)"
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
-        assertUpdate(admin, "insert into partition_test1(id,a,ds) values(1, 'a','a')", 1);
-        assertUpdate(admin, "insert into partition_test2(id,a,ds) values(1, 'a','a')", 1);
-        assertQueryFails(admin, "select a.id, b.id from partition_test1 a join partition_test2 b on (a.id = b.id) where a.ds = 'a'", "Filter on partition column required.*");
-        assertUpdate(admin, "DROP TABLE partition_test1");
-        assertUpdate(admin, "DROP TABLE partition_test2");
+        assertUpdate(admin, "insert into partition_test7(id,a,ds) values(1, 'a','a')", 1);
+        assertUpdate(admin, "insert into partition_test8(id,a,ds) values(1, 'a','a')", 1);
+        assertQueryFails(admin, "select a.id, b.id from partition_test7 a join partition_test8 b on (a.id = b.id) where a.ds = 'a'", "Filter required on tpch\\.partition_test8 for at least one partition column:.*");
+        assertUpdate(admin, "DROP TABLE partition_test7");
+        assertUpdate(admin, "DROP TABLE partition_test8");
     }
 
     @Test
@@ -399,7 +403,7 @@ public class TestHiveIntegrationSmokeTest
 
         assertUpdate(
                 admin,
-                "create table partition_test1(\n"
+                "create table partition_test9(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
@@ -407,17 +411,40 @@ public class TestHiveIntegrationSmokeTest
                         + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
         assertUpdate(
                 admin,
-                "create table partition_test2(\n"
+                "create table partition_test10(\n"
                         + "id integer,\n"
                         + "a varchar,\n"
                         + "b varchar,\n"
                         + "ds varchar)"
                         + "WITH (format='PARQUET')");
-        assertUpdate(admin, "insert into partition_test1(id,a,ds) values(1, 'a','a')", 1);
-        assertUpdate(admin, "insert into partition_test2(id,a,ds) values(1, 'a','a')", 1);
-        assertQuery(admin, "select a.id, b.id from partition_test1 a join partition_test2 b on (a.id = b.id) where a.ds = 'a'", "SELECT 1, 1");
-        assertUpdate(admin, "DROP TABLE partition_test1");
-        assertUpdate(admin, "DROP TABLE partition_test2");
+        assertUpdate(admin, "insert into partition_test9(id,a,ds) values(1, 'a','a')", 1);
+        assertUpdate(admin, "insert into partition_test10(id,a,ds) values(1, 'a','a')", 1);
+        assertQuery(admin, "select a.id, b.id from partition_test9 a join partition_test10 b on (a.id = b.id) where a.ds = 'a'", "SELECT 1, 1");
+        assertUpdate(admin, "DROP TABLE partition_test9");
+        assertUpdate(admin, "DROP TABLE partition_test10");
+    }
+
+    @Test
+    public void testPartitionPredicateAllowed() throws Exception
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
+                .build();
+
+        assertUpdate(
+                admin,
+                "create table partition_test11(\n"
+                        + "id integer,\n"
+                        + "a varchar,\n"
+                        + "b varchar,\n"
+                        + "ds varchar)"
+                        + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
+        assertUpdate(admin, "insert into partition_test11(id,a,ds) values(1, '1','1')", 1);
+        String query = "select id from partition_test11 where cast(ds as integer) = 1";
+        assertQuery(admin, query, "select 1");
+        computeActual(admin, "explain " + query);
+        assertUpdate(admin, "DROP TABLE partition_test11");
     }
 
     @Test

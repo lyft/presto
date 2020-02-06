@@ -15,4 +15,5 @@ package io.prestosql.spi.connector;
 
 public interface ConnectorTableHandle
 {
+    default void validateScan(ConnectorSession session) {}
 }

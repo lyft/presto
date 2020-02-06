@@ -217,7 +217,7 @@ public class HivePartitionManager
         return partitionList.build();
     }
 
-    public HiveTableHandle applyPartitionResult(HiveTableHandle handle, HivePartitionResult partitions)
+    public HiveTableHandle applyPartitionResult(HiveTableHandle handle, HivePartitionResult partitions, Optional<Constraint> constraint)
     {
         return new HiveTableHandle(
                 handle.getSchemaName(),
@@ -228,7 +228,8 @@ public class HivePartitionManager
                 partitions.getEnforcedConstraint(),
                 partitions.getBucketHandle(),
                 partitions.getBucketFilter(),
-                handle.getAnalyzePartitionValues());
+                handle.getAnalyzePartitionValues(),
+                constraint);
     }
 
     public List<HivePartition> getOrLoadPartitions(SemiTransactionalHiveMetastore metastore, HiveTableHandle table)
