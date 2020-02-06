@@ -107,8 +107,7 @@ public class TestFeaturesConfig
                 .setMaxGroupingSets(2048)
                 .setWorkProcessorPipelines(false)
                 .setSkipRedundantSort(true)
-                .setEnableDynamicFiltering(false)
-                .setQueryPartitionFilterRequired(false));
+                .setEnableDynamicFiltering(false));
     }
 
     @Test
@@ -176,7 +175,6 @@ public class TestFeaturesConfig
                 .put("experimental.work-processor-pipelines", "true")
                 .put("optimizer.skip-redundant-sort", "false")
                 .put("experimental.enable-dynamic-filtering", "true")
-                .put("query-partition-filter-required", "true")
                 .build();
 
         FeaturesConfig expected = new FeaturesConfig()
@@ -240,8 +238,7 @@ public class TestFeaturesConfig
                 .setDefaultFilterFactorEnabled(true)
                 .setWorkProcessorPipelines(true)
                 .setSkipRedundantSort(false)
-                .setEnableDynamicFiltering(true)
-                .setQueryPartitionFilterRequired(true);
+                .setEnableDynamicFiltering(true);
         assertFullMapping(properties, expected);
     }
 
