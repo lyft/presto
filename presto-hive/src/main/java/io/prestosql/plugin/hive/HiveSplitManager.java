@@ -169,7 +169,6 @@ public class HiveSplitManager
             ConnectorSession session,
             ConnectorTableHandle tableHandle,
             SplitSchedulingStrategy splitSchedulingStrategy)
-            throws PrestoException
     {
         HiveTableHandle hiveTable = (HiveTableHandle) tableHandle;
         SchemaTableName tableName = hiveTable.getSchemaTableName();

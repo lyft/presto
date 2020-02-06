@@ -40,7 +40,6 @@ import java.util.concurrent.TimeUnit;
 import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.prestosql.execution.TestQueues.createResourceGroupId;
-import static io.prestosql.plugin.tpch.TpchConnectorFactory.FAIL_PLANNING_PROPERTY;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static java.lang.String.format;
 import static java.util.stream.Collectors.toSet;
