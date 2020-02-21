@@ -186,8 +186,8 @@ public class QueryRunner
         if (useOkta) {
             log.info("Asking for okta authentication");
 
-            checkArgument(!oktaBaseUrl.isPresent() || !oktaClientId.isPresent(),
-                    "Okta Base URL and Okta app ID are required to use Okta authentication");
+            checkArgument(oktaBaseUrl.isPresent() && oktaClientId.isPresent(),
+                    "Okta Base URL and Okta client ID are required to use Okta authentication");
             User user = new User();
             Server server = new Server(5000);
             server.setHandler(new OktaAuthenticationHandler(oktaBaseUrl.get(), oktaClientId.get(), server, user));
