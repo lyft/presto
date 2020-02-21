@@ -26,6 +26,7 @@ import io.prestosql.operator.scalar.TryFunction;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.Constraint;
 import io.prestosql.spi.connector.ConstraintApplicationResult;
+import io.prestosql.spi.connector.DiscretePredicates;
 import io.prestosql.spi.predicate.NullableValue;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.sql.planner.DomainTranslator;
@@ -45,6 +46,7 @@ import io.prestosql.sql.planner.plan.ValuesNode;
 import io.prestosql.sql.tree.Expression;
 import io.prestosql.sql.tree.NullLiteral;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -175,7 +177,13 @@ public class PushPredicateIntoTableScan
                             // Simplify the tuple domain to avoid creating an expression with too many nodes,
                             // which would be expensive to evaluate in the call to isCandidate below.
                             domainTranslator.toPredicate(newDomain.simplify().transform(assignments::get))));
-            constraint = new Constraint(newDomain, evaluator::isCandidate);
+            Optional<DiscretePredicates> discretePredicates = metadata.getTableProperties(session, node.getTable()).getDiscretePredicates();
+            if (discretePredicates.isPresent() && Collections.disjoint(discretePredicates.get().getColumns(), evaluator.getArguments())) {
+                constraint = new Constraint(newDomain);
+            }
+            else {
+                constraint = new Constraint(newDomain, evaluator::isCandidate);
+            }
         }
         else {
             // Currently, invoking the expression interpreter is very expensive.
@@ -265,6 +273,11 @@ public class PushPredicateIntoTableScan
             arguments = SymbolsExtractor.extractUnique(expression).stream()
                     .map(assignments::get)
                     .collect(toImmutableSet());
+        }
+
+        public Set<ColumnHandle> getArguments()
+        {
+            return arguments;
         }
 
         private boolean isCandidate(Map<ColumnHandle, NullableValue> bindings)

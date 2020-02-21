@@ -448,6 +448,29 @@ public class TestHiveIntegrationSmokeTest
     }
 
     @Test
+    public void testPartitionPredicateDisallowed() throws Exception
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
+                .build();
+
+        assertUpdate(
+                admin,
+                "create table partition_test12(\n"
+                        + "id integer,\n"
+                        + "a varchar,\n"
+                        + "b varchar,\n"
+                        + "ds varchar)"
+                        + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
+        assertUpdate(admin, "insert into partition_test12(id,a,ds) values(1, '1','1')", 1);
+        String query = "select id from partition_test12 where cast(b as integer) = 1";
+        assertQueryFails(admin, query, "Filter required on tpch\\.partition_test12 for at least one partition column:.*");
+        assertQueryFails(admin, "explain " + query, "Filter required on tpch\\.partition_test12 for at least one partition column:.*");
+        assertUpdate(admin, "DROP TABLE partition_test12");
+    }
+
+    @Test
     public void testSchemaOperations()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
