@@ -803,4 +803,13 @@ public interface ConnectorMetadata
     {
         return new HashMap<>();
     }
+
+    /**
+     * Allows the connector to reject the table scan produced by the planner.
+     * <p>
+     * Connectors can choose to reject a query based on the table scan potentially being too expensive, for example
+     * if no filtering is done on a partition column.
+     * <p>
+     */
+    default void validateScan(ConnectorSession session, ConnectorTableHandle handle) {}
 }

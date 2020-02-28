@@ -16,7 +16,6 @@ package io.prestosql.sql.planner.sanity;
 import io.prestosql.Session;
 import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.metadata.Metadata;
-import io.prestosql.metadata.TableHandle;
 import io.prestosql.sql.planner.SimplePlanVisitor;
 import io.prestosql.sql.planner.TypeAnalyzer;
 import io.prestosql.sql.planner.TypeProvider;
@@ -34,8 +33,7 @@ public class PartitionFilterChecker
             @Override
             public Void visitTableScan(TableScanNode node, Void context)
             {
-                TableHandle table = node.getTable();
-                table.getConnectorHandle().validateScan(session.toConnectorSession(table.getCatalogName()));
+                metadata.validateScan(session, node.getTable());
                 return null;
             }
         }, null);

@@ -11,8 +11,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.prestosql.spi.connector;
+package io.prestosql.plugin.hive.util;
 
-public interface ConnectorTableHandle
+import java.util.Optional;
+import java.util.function.BinaryOperator;
+
+public final class Optionals
 {
+    private Optionals() {}
+
+    public static <T> Optional<T> combine(Optional<T> left, Optional<T> right, BinaryOperator<T> combiner)
+    {
+        if (left.isPresent() && right.isPresent()) {
+            return Optional.of(combiner.apply(left.get(), right.get()));
+        }
+        else if (left.isPresent()) {
+            return left;
+        }
+        else {
+            return right;
+        }
+    }
 }
