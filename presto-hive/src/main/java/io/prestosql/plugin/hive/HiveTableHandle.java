@@ -18,19 +18,15 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import io.prestosql.plugin.hive.HiveBucketing.HiveBucketFilter;
-import io.prestosql.spi.PrestoException;
-import io.prestosql.spi.StandardErrorCode;
 import io.prestosql.spi.connector.ColumnHandle;
-import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorTableHandle;
-import io.prestosql.spi.connector.Constraint;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.predicate.TupleDomain;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -46,7 +42,7 @@ public class HiveTableHandle
     private final Optional<HiveBucketHandle> bucketHandle;
     private final Optional<HiveBucketFilter> bucketFilter;
     private final Optional<List<List<String>>> analyzePartitionValues;
-    private final Optional<Constraint> partitionConstraint;
+    private final Optional<Set<ColumnHandle>> constraintColumns;
 
     @JsonCreator
     public HiveTableHandle(
@@ -67,7 +63,8 @@ public class HiveTableHandle
                 enforcedConstraint,
                 bucketHandle,
                 bucketFilter,
-                analyzePartitionValues);
+                analyzePartitionValues,
+                Optional.empty());
     }
 
     public HiveTableHandle(
@@ -84,6 +81,7 @@ public class HiveTableHandle
                 TupleDomain.all(),
                 bucketHandle,
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
     }
 
@@ -96,22 +94,8 @@ public class HiveTableHandle
             TupleDomain<ColumnHandle> enforcedConstraint,
             Optional<HiveBucketHandle> bucketHandle,
             Optional<HiveBucketFilter> bucketFilter,
-            Optional<List<List<String>>> analyzePartitionValues)
-    {
-        this(schemaName, tableName, partitionColumns, partitions, compactEffectivePredicate, enforcedConstraint, bucketHandle, bucketFilter, analyzePartitionValues, Optional.empty());
-    }
-
-    public HiveTableHandle(
-            String schemaName,
-            String tableName,
-            List<HiveColumnHandle> partitionColumns,
-            Optional<List<HivePartition>> partitions,
-            TupleDomain<HiveColumnHandle> compactEffectivePredicate,
-            TupleDomain<ColumnHandle> enforcedConstraint,
-            Optional<HiveBucketHandle> bucketHandle,
-            Optional<HiveBucketFilter> bucketFilter,
             Optional<List<List<String>>> analyzePartitionValues,
-            Optional<Constraint> partitionConstraint)
+            Optional<Set<ColumnHandle>> constraintColumns)
     {
         this.schemaName = requireNonNull(schemaName, "schemaName is null");
         this.tableName = requireNonNull(tableName, "tableName is null");
@@ -122,7 +106,7 @@ public class HiveTableHandle
         this.bucketHandle = requireNonNull(bucketHandle, "bucketHandle is null");
         this.bucketFilter = requireNonNull(bucketFilter, "bucketFilter is null");
         this.analyzePartitionValues = requireNonNull(analyzePartitionValues, "analyzePartitionValues is null");
-        this.partitionConstraint = partitionConstraint;
+        this.constraintColumns = requireNonNull(constraintColumns, "constraintColumns is null");
     }
 
     public HiveTableHandle withAnalyzePartitionValues(Optional<List<List<String>>> analyzePartitionValues)
@@ -136,7 +120,8 @@ public class HiveTableHandle
                 enforcedConstraint,
                 bucketHandle,
                 bucketFilter,
-                analyzePartitionValues);
+                analyzePartitionValues,
+                constraintColumns);
     }
 
     @JsonProperty
@@ -196,22 +181,9 @@ public class HiveTableHandle
 
     // do not serialize partition constraint as it is not needed on workers
     @JsonIgnore
-    public Optional<Constraint> getPartitionConstraint()
+    public Optional<Set<ColumnHandle>> getConstraintColumns()
     {
-        return partitionConstraint;
-    }
-
-    @Override
-    public void validateScan(ConnectorSession session)
-    {
-        if (HiveSessionProperties.isQueryPartitionFilterRequired(session) && !partitionColumns.isEmpty()
-                && getEnforcedConstraint().isAll()
-                && (!getPartitionConstraint().isPresent() || !getPartitionConstraint().get().predicate().isPresent())) {
-            String partitionColumnNames = partitionColumns.stream().map(n -> n.getName()).collect(Collectors.joining(","));
-            throw new PrestoException(
-                    StandardErrorCode.QUERY_REJECTED,
-                    String.format("Filter required on %s.%s for at least one partition column: %s ", schemaName, tableName, partitionColumnNames));
-        }
+        return constraintColumns;
     }
 
     public SchemaTableName getSchemaTableName()
