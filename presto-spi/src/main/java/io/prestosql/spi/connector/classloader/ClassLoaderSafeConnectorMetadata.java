@@ -658,4 +658,12 @@ public class ClassLoaderSafeConnectorMetadata
             return delegate.getNestedColumnHandles(session, tableHandle, dereferences);
         }
     }
+
+    @Override
+    public void validateScan(ConnectorSession session, ConnectorTableHandle handle)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            delegate.validateScan(session, handle);
+        }
+    }
 }
