@@ -494,6 +494,29 @@ public class TestHiveIntegrationSmokeTest
     }
 
     @Test
+    public void testNoPartitionFilterCheckOnAnalyze()
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setIdentity(new Identity("hive", Optional.empty(), ImmutableMap.of("hive", new SelectedRole(SelectedRole.Type.ROLE, Optional.of("admin")))))
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
+                .build();
+
+        assertUpdate(
+                admin,
+                "create table partition_test14(\n"
+                        + "id integer,\n"
+                        + "a varchar,\n"
+                        + "b varchar,\n"
+                        + "ds varchar)"
+                        + "WITH (format='PARQUET', partitioned_by = ARRAY['ds'])");
+        assertUpdate(admin, "insert into partition_test14(id,a,ds) values(1, 'a','a')", 1);
+        String query = "analyze partition_test14 WITH (PARTITIONS=ARRAY[ARRAY['a']])";
+        computeActual(admin, query);
+        computeActual(admin, "explain " + query);
+        assertUpdate(admin, "DROP TABLE partition_test14");
+    }
+
+    @Test
     public void testSchemaOperations()
     {
         Session admin = Session.builder(getQueryRunner().getDefaultSession())
