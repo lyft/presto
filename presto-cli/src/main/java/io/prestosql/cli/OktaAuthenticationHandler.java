@@ -34,32 +34,38 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.Base64;
 
-class LyftOktaAuthenticationHandler
+class OktaAuthenticationHandler
         extends AbstractHandler
 {
     private static final String REDIRECT_URI = "http://localhost:5000/authorization-code/callback";
     private static final String STATE = "LOGIN";
 
-    private static final String CLIENT_ID = "0oacv9m4dpomHGs2I1t7";
-    private static final String BASE_URL = "https://lyft.okta.com";
-    private static final String ISSUER = BASE_URL + "/oauth2/default";
-    private static final String TOKEN_ENDPOINT = ISSUER + "/v1/token";
-    private static final String LOGIN_ENDPOINT = ISSUER + "/v1/authorize";
+    private static final String ISSUER_PATH = "/oauth2/default";
+    private static final String TOKEN_PATH = "/v1/token";
+    private static final String LOGIN_PATH = "/v1/authorize";
 
     private static final int LENGTH_CODE_VERIFIER = 64;
 
     private Server server;
     private User user;
+    private String clientId;
+    private String tokenEndpoint;
+    private String loginEndpoint;
 
     private String codeVerifier;
     private String codeChallenge;
 
-    private static final Logger log = Logger.get(LyftOktaAuthenticationHandler.class);
+    private static final Logger log = Logger.get(OktaAuthenticationHandler.class);
 
-    LyftOktaAuthenticationHandler(Server server, User user)
+    OktaAuthenticationHandler(String baseUrl, String clientId, Server server, User user)
     {
+        this.clientId = clientId;
         this.server = server;
         this.user = user;
+
+        String issuer = baseUrl + ISSUER_PATH;
+        tokenEndpoint = issuer + TOKEN_PATH;
+        loginEndpoint = issuer + LOGIN_PATH;
 
         SecureRandom random = new SecureRandom();
         byte[] codeVerifierBytes = new byte[LENGTH_CODE_VERIFIER];
@@ -74,8 +80,8 @@ class LyftOktaAuthenticationHandler
 
     private String getOktaLoginUrl()
     {
-        return LOGIN_ENDPOINT + "?"
-                + "client_id=" + CLIENT_ID + "&"
+        return loginEndpoint + "?"
+                + "client_id=" + clientId + "&"
                 + "redirect_uri=" + REDIRECT_URI + "&"
                 + "response_type=code&"
                 + "scope=openid&"
@@ -127,11 +133,11 @@ class LyftOktaAuthenticationHandler
                 .add("code", code)
                 .add("code_verifier", codeVerifier)
                 .add("redirect_uri", REDIRECT_URI)
-                .add("client_id", CLIENT_ID)
+                .add("client_id", clientId)
                 .build();
 
         okhttp3.Request accessTokenRequest = new okhttp3.Request.Builder()
-                .url(TOKEN_ENDPOINT)
+                .url(tokenEndpoint)
                 .addHeader("User-Agent", "OkHttp Bot")
                 .post(formBody)
                 .build();

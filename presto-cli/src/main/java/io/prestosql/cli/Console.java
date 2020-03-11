@@ -141,6 +141,8 @@ public class Console
                 Optional.ofNullable(clientOptions.krb5ConfigPath),
                 Optional.ofNullable(clientOptions.krb5KeytabPath),
                 Optional.ofNullable(clientOptions.krb5CredentialCachePath),
+                Optional.ofNullable(clientOptions.oktaBaseUrl),
+                Optional.ofNullable(clientOptions.oktaClientId),
                 !clientOptions.krb5DisableRemoteServiceHostnameCanonicalization,
                 clientOptions.useOkta)) {
             if (hasQuery) {
