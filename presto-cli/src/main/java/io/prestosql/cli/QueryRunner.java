@@ -71,6 +71,8 @@ public class QueryRunner
             Optional<String> kerberosConfigPath,
             Optional<String> kerberosKeytabPath,
             Optional<String> kerberosCredentialCachePath,
+            Optional<String> oktaBaseUrl,
+            Optional<String> oktaClientId,
             boolean kerberosUseCanonicalHostname,
             boolean useOkta)
     {
@@ -89,7 +91,7 @@ public class QueryRunner
         setupHttpProxy(builder, httpProxy);
         setupBasicAuth(builder, session, user, password);
         setupTokenAuth(builder, session, accessToken);
-        setupOktaAuth(builder, session, useOkta);
+        setupOktaAuth(builder, session, useOkta, oktaBaseUrl, oktaClientId);
 
         if (kerberosRemoteServiceName.isPresent()) {
             checkArgument(session.getServer().getScheme().equalsIgnoreCase("https"),
@@ -177,13 +179,18 @@ public class QueryRunner
     private static void setupOktaAuth(
             OkHttpClient.Builder clientBuilder,
             ClientSession session,
-            boolean useOkta)
+            boolean useOkta,
+            Optional<String> oktaBaseUrl,
+            Optional<String> oktaClientId)
     {
         if (useOkta) {
             log.info("Asking for okta authentication");
+
+            checkArgument(oktaBaseUrl.isPresent() && oktaClientId.isPresent(),
+                    "Okta Base URL and Okta client ID are required to use Okta authentication");
             User user = new User();
             Server server = new Server(5000);
-            server.setHandler(new LyftOktaAuthenticationHandler(server, user));
+            server.setHandler(new OktaAuthenticationHandler(oktaBaseUrl.get(), oktaClientId.get(), server, user));
 
             try {
                 server.start();
