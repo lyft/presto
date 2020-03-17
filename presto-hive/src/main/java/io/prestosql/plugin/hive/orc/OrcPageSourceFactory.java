@@ -30,7 +30,9 @@ import io.prestosql.plugin.hive.DeleteDeltaLocations;
 import io.prestosql.plugin.hive.FileFormatDataSourceStats;
 import io.prestosql.plugin.hive.HdfsEnvironment;
 import io.prestosql.plugin.hive.HiveColumnHandle;
+import io.prestosql.plugin.hive.HiveColumnProjectionInfo;
 import io.prestosql.plugin.hive.HivePageSourceFactory;
+import io.prestosql.plugin.hive.ReaderProjections;
 import io.prestosql.plugin.hive.orc.OrcPageSource.ColumnAdaptation;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorPageSource;
@@ -71,6 +73,7 @@ import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_BAD_DATA;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_CANNOT_OPEN_SPLIT;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_FILE_MISSING_COLUMN_NAMES;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_MISSING_DATA;
+import static io.prestosql.plugin.hive.HivePageSourceFactory.ReaderPageSourceWithProjections.noProjectionAdaptation;
 import static io.prestosql.plugin.hive.HiveSessionProperties.getOrcLazyReadSmallRanges;
 import static io.prestosql.plugin.hive.HiveSessionProperties.getOrcMaxBufferSize;
 import static io.prestosql.plugin.hive.HiveSessionProperties.getOrcMaxMergeDistance;
@@ -80,6 +83,7 @@ import static io.prestosql.plugin.hive.HiveSessionProperties.getOrcTinyStripeThr
 import static io.prestosql.plugin.hive.HiveSessionProperties.isOrcBloomFiltersEnabled;
 import static io.prestosql.plugin.hive.HiveSessionProperties.isOrcNestedLazy;
 import static io.prestosql.plugin.hive.HiveSessionProperties.isUseOrcColumnNames;
+import static io.prestosql.plugin.hive.ReaderProjections.projectSufficientColumns;
 import static io.prestosql.plugin.hive.orc.OrcPageSource.handleException;
 import static io.prestosql.plugin.hive.util.HiveUtil.isDeserializerClass;
 import static io.prestosql.spi.type.BigintType.BIGINT;
@@ -122,7 +126,7 @@ public class OrcPageSourceFactory
     }
 
     @Override
-    public Optional<? extends ConnectorPageSource> createPageSource(
+    public Optional<ReaderPageSourceWithProjections> createPageSource(
             Configuration configuration,
             ConnectorSession session,
             Path path,
@@ -141,10 +145,13 @@ public class OrcPageSourceFactory
 
         // per HIVE-13040 and ORC-162, empty files are allowed
         if (fileSize == 0) {
-            return Optional.of(new FixedPageSource(ImmutableList.of()));
+            ReaderPageSourceWithProjections context = noProjectionAdaptation(new FixedPageSource(ImmutableList.of()));
+            return Optional.of(context);
         }
 
-        return Optional.of(createOrcPageSource(
+        Optional<ReaderProjections> projectedReaderColumns = projectSufficientColumns(columns);
+
+        ConnectorPageSource orcPageSource = createOrcPageSource(
                 hdfsEnvironment,
                 session.getUser(),
                 configuration,
@@ -152,7 +159,9 @@ public class OrcPageSourceFactory
                 start,
                 length,
                 fileSize,
-                columns,
+                projectedReaderColumns
+                        .map(projection -> projection.getReaderColumns())
+                        .orElse(columns),
                 isUseOrcColumnNames(session),
                 isFullAcidTable(Maps.fromProperties(schema)),
                 effectivePredicate,
@@ -167,7 +176,9 @@ public class OrcPageSourceFactory
                         .withNestedLazy(isOrcNestedLazy(session))
                         .withBloomFiltersEnabled(isOrcBloomFiltersEnabled(session)),
                 deleteDeltaLocations,
-                stats));
+                stats);
+
+        return Optional.of(new ReaderPageSourceWithProjections(orcPageSource, projectedReaderColumns));
     }
 
     private static OrcPageSource createOrcPageSource(
@@ -215,13 +226,13 @@ public class OrcPageSourceFactory
         try {
             OrcReader reader = new OrcReader(orcDataSource, options);
 
-            List<OrcColumn> fileColumns = reader.getRootColumn().getNestedColumns();
+            List<OrcColumn> fileBaseColumns = reader.getRootColumn().getNestedColumns();
             List<OrcColumn> fileReadColumns = new ArrayList<>(columns.size() + (isFullAcid ? 3 : 0));
             List<Type> fileReadTypes = new ArrayList<>(columns.size() + (isFullAcid ? 3 : 0));
             if (isFullAcid) {
                 verifyAcidSchema(reader, path);
-                Map<String, OrcColumn> acidColumnsByName = uniqueIndex(fileColumns, orcColumn -> orcColumn.getColumnName().toLowerCase(ENGLISH));
-                fileColumns = acidColumnsByName.get(ACID_COLUMN_ROW_STRUCT.toLowerCase(ENGLISH)).getNestedColumns();
+                Map<String, OrcColumn> acidColumnsByName = uniqueIndex(fileBaseColumns, orcColumn -> orcColumn.getColumnName().toLowerCase(ENGLISH));
+                fileBaseColumns = acidColumnsByName.get(ACID_COLUMN_ROW_STRUCT.toLowerCase(ENGLISH)).getNestedColumns();
 
                 fileReadColumns.add(acidColumnsByName.get(ACID_COLUMN_ORIGINAL_TRANSACTION.toLowerCase(ENGLISH)));
                 fileReadTypes.add(BIGINT);
@@ -231,38 +242,49 @@ public class OrcPageSourceFactory
                 fileReadTypes.add(BIGINT);
             }
 
-            Map<String, OrcColumn> fileColumnsByName = ImmutableMap.of();
+            Map<String, OrcColumn> baseFileColumnsByName = ImmutableMap.of();
             if (useOrcColumnNames || isFullAcid) {
-                verifyFileHasColumnNames(fileColumns, path);
-
+                verifyFileHasColumnNames(fileBaseColumns, path);
                 // Convert column names read from ORC files to lower case to be consistent with those stored in Hive Metastore
-                fileColumnsByName = uniqueIndex(fileColumns, orcColumn -> orcColumn.getColumnName().toLowerCase(ENGLISH));
+                baseFileColumnsByName = uniqueIndex(fileBaseColumns, orcColumn -> orcColumn.getColumnName().toLowerCase(ENGLISH));
             }
 
+            effectivePredicate = effectivePredicate.transform(hiveColumnHandle -> hiveColumnHandle.getColumnType() == REGULAR ? hiveColumnHandle : null);
             TupleDomainOrcPredicateBuilder predicateBuilder = TupleDomainOrcPredicate.builder()
                     .setBloomFiltersEnabled(options.isBloomFiltersEnabled());
             Map<HiveColumnHandle, Domain> effectivePredicateDomains = effectivePredicate.getDomains()
                     .orElseThrow(() -> new IllegalArgumentException("Effective predicate is none"));
+
             List<ColumnAdaptation> columnAdaptations = new ArrayList<>(columns.size());
+
+            // Build column adaptations and predicates
             for (HiveColumnHandle column : columns) {
-                OrcColumn orcColumn = null;
+                // Get base orc column
+                OrcColumn baseOrcColumn = null;
                 if (useOrcColumnNames || isFullAcid) {
-                    orcColumn = fileColumnsByName.get(column.getName().toLowerCase(ENGLISH));
+                    baseOrcColumn = baseFileColumnsByName.get(column.getBaseColumnName().toLowerCase(ENGLISH));
                 }
-                else if (column.getHiveColumnIndex() < fileColumns.size()) {
-                    orcColumn = fileColumns.get(column.getHiveColumnIndex());
+                else if (column.getBaseHiveColumnIndex() < fileBaseColumns.size()) {
+                    baseOrcColumn = fileBaseColumns.get(column.getBaseHiveColumnIndex());
+                }
+
+                // Get nested orc column and add it to column adaptations
+                OrcColumn nestedOrcColumn = null;
+                if (baseOrcColumn != null) {
+                    nestedOrcColumn = getNestedOrcColumn(baseOrcColumn, column.getHiveColumnProjectionInfo());
                 }
 
                 Type readType = column.getType();
-                if (orcColumn != null) {
+                if (nestedOrcColumn != null) {
                     int sourceIndex = fileReadColumns.size();
                     columnAdaptations.add(ColumnAdaptation.sourceColumn(sourceIndex));
-                    fileReadColumns.add(orcColumn);
+                    fileReadColumns.add(nestedOrcColumn);
                     fileReadTypes.add(readType);
 
+                    // Add predicate
                     Domain domain = effectivePredicateDomains.get(column);
                     if (domain != null) {
-                        predicateBuilder.addColumn(orcColumn.getColumnId(), domain);
+                        predicateBuilder.addColumn(nestedOrcColumn.getColumnId(), domain);
                     }
                 }
                 else {
@@ -313,6 +335,28 @@ public class OrcPageSourceFactory
             }
             throw new PrestoException(HIVE_CANNOT_OPEN_SPLIT, message, e);
         }
+    }
+
+    private static OrcColumn getNestedOrcColumn(OrcColumn baseOrcColumn, Optional<HiveColumnProjectionInfo> partialColumnInfo)
+    {
+        if (!partialColumnInfo.isPresent()) {
+            return baseOrcColumn;
+        }
+
+        OrcColumn current = baseOrcColumn;
+        for (String field : partialColumnInfo.get().getDereferenceNames()) {
+            Optional<OrcColumn> orcColumn = current.getNestedColumns().stream()
+                    .filter(column -> column.getColumnName().toLowerCase(ENGLISH).equals(field))
+                    .findFirst();
+
+            if (!orcColumn.isPresent()) {
+                return null;
+            }
+
+            current = orcColumn.get();
+        }
+
+        return current;
     }
 
     private static String splitError(Throwable t, Path path, long start, long length)

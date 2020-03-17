@@ -28,6 +28,7 @@ import com.google.common.collect.Sets;
 import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
 import io.prestosql.plugin.hive.HdfsEnvironment.HdfsContext;
+import io.prestosql.plugin.hive.HiveApplyProjectionUtil.ProjectedColumnRepresentation;
 import io.prestosql.plugin.hive.LocationService.WriteInfo;
 import io.prestosql.plugin.hive.authentication.HiveIdentity;
 import io.prestosql.plugin.hive.metastore.Column;
@@ -64,11 +65,15 @@ import io.prestosql.spi.connector.Constraint;
 import io.prestosql.spi.connector.ConstraintApplicationResult;
 import io.prestosql.spi.connector.DiscretePredicates;
 import io.prestosql.spi.connector.InMemoryRecordSet;
+import io.prestosql.spi.connector.ProjectionApplicationResult;
+import io.prestosql.spi.connector.ProjectionApplicationResult.Assignment;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.connector.SchemaTablePrefix;
 import io.prestosql.spi.connector.SystemTable;
 import io.prestosql.spi.connector.TableNotFoundException;
 import io.prestosql.spi.connector.ViewNotFoundException;
+import io.prestosql.spi.expression.ConnectorExpression;
+import io.prestosql.spi.expression.Variable;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.predicate.NullableValue;
 import io.prestosql.spi.predicate.TupleDomain;
@@ -100,6 +105,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -125,6 +131,9 @@ import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Streams.stream;
 import static io.prestosql.plugin.hive.HiveAnalyzeProperties.getColumnNames;
 import static io.prestosql.plugin.hive.HiveAnalyzeProperties.getPartitionList;
+import static io.prestosql.plugin.hive.HiveApplyProjectionUtil.extractSupportedProjectedColumns;
+import static io.prestosql.plugin.hive.HiveApplyProjectionUtil.find;
+import static io.prestosql.plugin.hive.HiveApplyProjectionUtil.replaceWithNewVariables;
 import static io.prestosql.plugin.hive.HiveBasicStatistics.createEmptyStatistics;
 import static io.prestosql.plugin.hive.HiveBasicStatistics.createZeroStatistics;
 import static io.prestosql.plugin.hive.HiveColumnHandle.BUCKET_COLUMN_NAME;
@@ -134,6 +143,7 @@ import static io.prestosql.plugin.hive.HiveColumnHandle.ColumnType.SYNTHESIZED;
 import static io.prestosql.plugin.hive.HiveColumnHandle.FILE_MODIFIED_TIME_COLUMN_NAME;
 import static io.prestosql.plugin.hive.HiveColumnHandle.FILE_SIZE_COLUMN_NAME;
 import static io.prestosql.plugin.hive.HiveColumnHandle.PATH_COLUMN_NAME;
+import static io.prestosql.plugin.hive.HiveColumnHandle.createBaseColumn;
 import static io.prestosql.plugin.hive.HiveColumnHandle.updateRowIdHandle;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_COLUMN_ORDER_MISMATCH;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_CONCURRENT_MODIFICATION_DETECTED;
@@ -1916,6 +1926,99 @@ public class HiveMetadata
         }
     }
 
+    public Optional<ProjectionApplicationResult<ConnectorTableHandle>> applyProjection(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorExpression> projections,
+            Map<String, ColumnHandle> assignments)
+    {
+        // Create projected column representations for supported sub expressions. Simple column references and chain of
+        // dereferences on a variable are supported right now.
+        Set<ConnectorExpression> projectedExpressions = projections.stream()
+                .flatMap(expression -> extractSupportedProjectedColumns(expression).stream())
+                .collect(toImmutableSet());
+
+        Map<ConnectorExpression, ProjectedColumnRepresentation> columnProjections = projectedExpressions.stream()
+                .collect(toImmutableMap(Function.identity(), HiveApplyProjectionUtil::createProjectedColumnRepresentation));
+
+        // No pushdown required if all references are simple variables
+        if (columnProjections.values().stream().allMatch(ProjectedColumnRepresentation::isVariable)) {
+            return Optional.empty();
+        }
+
+        Map<String, Assignment> newAssignments = new HashMap<>();
+        ImmutableMap.Builder<ConnectorExpression, Variable> expressionToVariableMappings = ImmutableMap.builder();
+
+        for (Map.Entry<ConnectorExpression, ProjectedColumnRepresentation> entry : columnProjections.entrySet()) {
+            ConnectorExpression expression = entry.getKey();
+            ProjectedColumnRepresentation projectedColumn = entry.getValue();
+
+            ColumnHandle projectedColumnHandle;
+            String projectedColumnName;
+
+            // See if input already contains a columnhandle for this projected column, avoid creating duplicates.
+            Optional<String> existingColumn = find(assignments, projectedColumn);
+
+            if (existingColumn.isPresent()) {
+                projectedColumnName = existingColumn.get();
+                projectedColumnHandle = assignments.get(projectedColumnName);
+            }
+            else {
+                // Create a new column handle
+                HiveColumnHandle oldColumnHandle = (HiveColumnHandle) assignments.get(projectedColumn.getVariable().getName());
+                projectedColumnHandle = createProjectedColumnHandle(oldColumnHandle, projectedColumn.getDereferenceIndices());
+                projectedColumnName = ((HiveColumnHandle) projectedColumnHandle).getName();
+            }
+
+            Variable projectedColumnVariable = new Variable(projectedColumnName, expression.getType());
+            Assignment newAssignment = new Assignment(projectedColumnName, projectedColumnHandle, expression.getType());
+            newAssignments.put(projectedColumnName, newAssignment);
+
+            expressionToVariableMappings.put(expression, projectedColumnVariable);
+        }
+
+        // Modify projections to refer to new variables
+        List<ConnectorExpression> newProjections = projections.stream()
+                .map(expression -> replaceWithNewVariables(expression, expressionToVariableMappings.build()))
+                .collect(toImmutableList());
+
+        List<Assignment> outputAssignments = newAssignments.values().stream().collect(toImmutableList());
+        return Optional.of(new ProjectionApplicationResult<>(handle, newProjections, outputAssignments));
+    }
+
+    private HiveColumnHandle createProjectedColumnHandle(HiveColumnHandle column, List<Integer> indices)
+    {
+        HiveType oldHiveType = column.getHiveType();
+        HiveType newHiveType = oldHiveType.getHiveTypeForDereferences(indices).get();
+
+        HiveColumnProjectionInfo columnProjectionInfo = new HiveColumnProjectionInfo(
+                // Merge indices
+                ImmutableList.<Integer>builder()
+                    .addAll(column.getHiveColumnProjectionInfo()
+                        .map(HiveColumnProjectionInfo::getDereferenceIndices)
+                        .orElse(ImmutableList.of()))
+                    .addAll(indices)
+                    .build(),
+                // Merge names
+                ImmutableList.<String>builder()
+                    .addAll(column.getHiveColumnProjectionInfo()
+                        .map(HiveColumnProjectionInfo::getDereferenceNames)
+                        .orElse(ImmutableList.of()))
+                    .addAll(oldHiveType.getHiveDereferenceNames(indices))
+                    .build(),
+                newHiveType,
+                newHiveType.getType(typeManager));
+
+        return new HiveColumnHandle(
+                column.getBaseColumnName(),
+                column.getBaseHiveColumnIndex(),
+                column.getBaseHiveType(),
+                column.getBaseType(),
+                Optional.of(columnProjectionInfo),
+                column.getColumnType(),
+                column.getComment());
+    }
+
     @Override
     public Optional<ConnectorPartitioningHandle> getCommonPartitioningHandle(ConnectorSession session, ConnectorPartitioningHandle left, ConnectorPartitioningHandle right)
     {
@@ -2336,11 +2439,11 @@ public class HiveMetadata
             else {
                 columnType = REGULAR;
             }
-            columnHandles.add(new HiveColumnHandle(
+            columnHandles.add(createBaseColumn(
                     column.getName(),
+                    ordinal,
                     toHiveType(typeTranslator, column.getType()),
                     column.getType(),
-                    ordinal,
                     columnType,
                     Optional.ofNullable(column.getComment())));
             ordinal++;
