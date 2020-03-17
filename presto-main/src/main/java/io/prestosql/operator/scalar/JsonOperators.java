@@ -19,6 +19,7 @@ import com.fasterxml.jackson.core.JsonParser;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceOutput;
+import io.airlift.slice.XxHash64;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.block.Block;
 import io.prestosql.spi.connector.ConnectorSession;
@@ -42,6 +43,7 @@ import static io.prestosql.spi.function.OperatorType.HASH_CODE;
 import static io.prestosql.spi.function.OperatorType.INDETERMINATE;
 import static io.prestosql.spi.function.OperatorType.IS_DISTINCT_FROM;
 import static io.prestosql.spi.function.OperatorType.NOT_EQUAL;
+import static io.prestosql.spi.function.OperatorType.XX_HASH_64;
 import static io.prestosql.spi.type.StandardTypes.BIGINT;
 import static io.prestosql.spi.type.StandardTypes.BOOLEAN;
 import static io.prestosql.spi.type.StandardTypes.DATE;
@@ -370,6 +372,13 @@ public final class JsonOperators
         return value.hashCode();
     }
 
+    @ScalarOperator(XX_HASH_64)
+    @SqlType(BIGINT)
+    public static long xxHash64(@SqlType(JSON) Slice value)
+    {
+        return XxHash64.hash(value);
+    }
+
     @ScalarOperator(INDETERMINATE)
     @SqlType(BOOLEAN)
     public static boolean indeterminate(@SqlType(JSON) Slice value, @IsNull boolean isNull)
@@ -394,7 +403,7 @@ public final class JsonOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static class JsonDistinctFromOperator
+    public static final class JsonDistinctFromOperator
     {
         @SqlType(BOOLEAN)
         public static boolean isDistinctFrom(@SqlType(JSON) Slice leftJson, @IsNull boolean leftNull, @SqlType(JSON) Slice rightJson, @IsNull boolean rightNull)

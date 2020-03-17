@@ -52,7 +52,6 @@ public class TestHeartbeatFailureDetector
 {
     @Test
     public void testExcludesCurrentNode()
-            throws Exception
     {
         Bootstrap app = new Bootstrap(
                 new TestingNodeModule(),
@@ -115,7 +114,7 @@ public class TestHeartbeatFailureDetector
     }
 
     @Path("/foo")
-    public static class FooResource
+    public static final class FooResource
     {
         @GET
         public static String hello()

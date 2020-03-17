@@ -63,6 +63,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static com.google.common.base.Verify.verify;
+import static com.google.common.base.Verify.verifyNotNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.MoreCollectors.toOptional;
@@ -163,7 +164,7 @@ public class ClusterMemoryManager
         verify(maxQueryMemory.toBytes() <= maxQueryTotalMemory.toBytes(),
                 "maxQueryMemory cannot be greater than maxQueryTotalMemory");
 
-        this.pools = createClusterMemoryPools(nodeMemoryConfig.isReservedPoolEnabled());
+        this.pools = createClusterMemoryPools(!nodeMemoryConfig.isReservedPoolDisabled());
     }
 
     private Map<MemoryPoolId, ClusterMemoryPool> createClusterMemoryPools(boolean reservedPoolEnabled)
@@ -384,10 +385,8 @@ public class ClusterMemoryManager
     // RemoteNodeMemory as we don't need to POST anything.
     private synchronized MemoryPoolAssignmentsRequest updateAssignments(Iterable<QueryExecution> queries)
     {
-        ClusterMemoryPool reservedPool = pools.get(RESERVED_POOL);
-        ClusterMemoryPool generalPool = pools.get(GENERAL_POOL);
-        verify(generalPool != null, "generalPool is null");
-        verify(reservedPool != null, "reservedPool is null");
+        ClusterMemoryPool reservedPool = verifyNotNull(pools.get(RESERVED_POOL), "reservedPool is null");
+        ClusterMemoryPool generalPool = verifyNotNull(pools.get(GENERAL_POOL), "generalPool is null");
         long version = memoryPoolAssignmentsVersion.incrementAndGet();
         // Check that all previous assignments have propagated to the visible nodes. This doesn't account for temporary network issues,
         // and is more of a safety check than a guarantee

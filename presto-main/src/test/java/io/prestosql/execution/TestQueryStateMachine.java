@@ -25,6 +25,7 @@ import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.memory.VersionedMemoryPoolId;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.security.AccessControl;
+import io.prestosql.security.AccessControlConfig;
 import io.prestosql.security.AccessControlManager;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.memory.MemoryPoolId;
@@ -176,7 +177,7 @@ public class TestQueryStateMachine
         assertEquals(queryStats.getQueuedTime(), new Duration(7, MILLISECONDS));
         assertEquals(queryStats.getResourceWaitingTime(), new Duration(0, MILLISECONDS));
         assertEquals(queryStats.getDispatchingTime(), new Duration(0, MILLISECONDS));
-        assertEquals(queryStats.getTotalPlanningTime(), new Duration(0, MILLISECONDS));
+        assertEquals(queryStats.getPlanningTime(), new Duration(0, MILLISECONDS));
         assertEquals(queryStats.getExecutionTime(), new Duration(0, MILLISECONDS));
         assertEquals(queryStats.getFinishingTime(), new Duration(0, MILLISECONDS));
     }
@@ -336,7 +337,7 @@ public class TestQueryStateMachine
         assertEquals(queryStats.getQueuedTime().toMillis(), 25);
         assertEquals(queryStats.getResourceWaitingTime().toMillis(), 50);
         assertEquals(queryStats.getDispatchingTime().toMillis(), 100);
-        assertEquals(queryStats.getTotalPlanningTime().toMillis(), 200);
+        assertEquals(queryStats.getPlanningTime().toMillis(), 200);
         // there is no way to induce finishing time without a transaction and connector
         assertEquals(queryStats.getFinishingTime().toMillis(), 0);
         // query execution time is starts when query transitions to planning
@@ -444,7 +445,7 @@ public class TestQueryStateMachine
         assertNotNull(queryStats.getResourceWaitingTime());
         assertNotNull(queryStats.getDispatchingTime());
         assertNotNull(queryStats.getExecutionTime());
-        assertNotNull(queryStats.getTotalPlanningTime());
+        assertNotNull(queryStats.getPlanningTime());
         assertNotNull(queryStats.getFinishingTime());
 
         assertNotNull(queryStats.getCreateTime());
@@ -491,7 +492,7 @@ public class TestQueryStateMachine
     {
         Metadata metadata = createTestMetadataManager();
         TransactionManager transactionManager = createTestTransactionManager();
-        AccessControl accessControl = new AccessControlManager(transactionManager);
+        AccessControl accessControl = new AccessControlManager(transactionManager, new AccessControlConfig());
         QueryStateMachine stateMachine = QueryStateMachine.beginWithTicker(
                 QUERY,
                 Optional.empty(),

@@ -14,7 +14,6 @@
 package io.prestosql.tests.hive;
 
 import com.google.common.primitives.Longs;
-import io.prestosql.tempto.ProductTest;
 import io.prestosql.tempto.Requires;
 import io.prestosql.tempto.fulfillment.table.hive.tpch.ImmutableTpchTablesRequirements.ImmutableNationTable;
 import io.prestosql.tempto.query.QueryExecutor;
@@ -26,19 +25,18 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.google.common.base.Verify.verify;
-import static io.prestosql.tests.TestGroups.HIVE_TABLE_STATISTICS;
+import static io.prestosql.tests.TestGroups.SKIP_ON_CDH;
 import static io.prestosql.tests.utils.QueryExecutors.onHive;
 import static io.prestosql.tests.utils.QueryExecutors.onPresto;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Requires(ImmutableNationTable.class)
 public class TestHiveBasicTableStatistics
-        extends ProductTest
+        extends HiveProductTest
 {
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test
     public void testCreateUnpartitioned()
     {
         String tableName = "test_basic_statistics_unpartitioned_ctas_presto";
@@ -56,7 +54,7 @@ public class TestHiveBasicTableStatistics
         }
     }
 
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test
     public void testCreateTableWithNoData()
     {
         String tableName = "test_basic_statistics_unpartitioned_ctas_presto_with_no_data";
@@ -73,7 +71,7 @@ public class TestHiveBasicTableStatistics
         }
     }
 
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test
     public void testInsertUnpartitioned()
     {
         String tableName = "test_basic_statistics_unpartitioned_insert_presto";
@@ -109,7 +107,7 @@ public class TestHiveBasicTableStatistics
         }
     }
 
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test
     public void testCreatePartitioned()
     {
         String tableName = "test_basic_statistics_partitioned_ctas_presto";
@@ -128,8 +126,10 @@ public class TestHiveBasicTableStatistics
                 "WHERE n_nationkey <> 23", tableName));
 
         try {
-            BasicStatistics tableStatistics = getBasicStatisticsForTable(onHive(), tableName);
-            assertThatStatisticsAreNotPresent(tableStatistics);
+            if (getHiveVersionMajor() < 3) {
+                BasicStatistics tableStatistics = getBasicStatisticsForTable(onHive(), tableName);
+                assertThatStatisticsAreNotPresent(tableStatistics);
+            }
 
             BasicStatistics firstPartitionStatistics = getBasicStatisticsForPartition(onHive(), tableName, "n_regionkey=1");
             assertThatStatisticsAreNonZero(firstPartitionStatistics);
@@ -144,7 +144,7 @@ public class TestHiveBasicTableStatistics
         }
     }
 
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test(groups = SKIP_ON_CDH /* CDH 5 metastore automatically gathers raw data size statistics on its own */)
     public void testAnalyzePartitioned()
     {
         String tableName = "test_basic_statistics_analyze_partitioned";
@@ -163,8 +163,10 @@ public class TestHiveBasicTableStatistics
                 "WHERE n_regionkey = 1", tableName));
 
         try {
-            BasicStatistics tableStatistics = getBasicStatisticsForTable(onHive(), tableName);
-            assertThatStatisticsAreNotPresent(tableStatistics);
+            if (getHiveVersionMajor() < 3) {
+                BasicStatistics tableStatistics = getBasicStatisticsForTable(onHive(), tableName);
+                assertThatStatisticsAreNotPresent(tableStatistics);
+            }
 
             BasicStatistics partitionStatisticsBefore = getBasicStatisticsForPartition(onHive(), tableName, "n_regionkey=1");
             assertThatStatisticsArePresent(partitionStatisticsBefore);
@@ -185,7 +187,7 @@ public class TestHiveBasicTableStatistics
         }
     }
 
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test
     public void testAnalyzeUnpartitioned()
     {
         String tableName = "test_basic_statistics_analyze_unpartitioned";
@@ -218,7 +220,7 @@ public class TestHiveBasicTableStatistics
         }
     }
 
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test
     public void testInsertPartitioned()
     {
         String tableName = "test_basic_statistics_partitioned_insert_presto";
@@ -236,8 +238,10 @@ public class TestHiveBasicTableStatistics
                 ") ", tableName));
 
         try {
-            BasicStatistics tableStatisticsAfterCreate = getBasicStatisticsForTable(onHive(), tableName);
-            assertThatStatisticsAreNotPresent(tableStatisticsAfterCreate);
+            if (getHiveVersionMajor() < 3) {
+                BasicStatistics tableStatisticsAfterCreate = getBasicStatisticsForTable(onHive(), tableName);
+                assertThatStatisticsAreNotPresent(tableStatisticsAfterCreate);
+            }
 
             insertNationData(onPresto(), tableName);
 
@@ -256,7 +260,7 @@ public class TestHiveBasicTableStatistics
         }
     }
 
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test
     public void testInsertBucketed()
     {
         String tableName = "test_basic_statistics_bucketed_insert_presto";
@@ -278,20 +282,24 @@ public class TestHiveBasicTableStatistics
             assertThat(statisticsAfterCreate.getNumRows().getAsLong()).isEqualTo(25);
             assertThat(statisticsAfterCreate.getNumFiles().getAsLong()).isEqualTo(50);
 
-            // Insert into bucketed unpartitioned table is unsupported
-            assertThatThrownBy(() -> insertNationData(onPresto(), tableName))
-                    .hasMessageContaining("Cannot insert into bucketed unpartitioned Hive table");
+            insertNationData(onPresto(), tableName);
 
             BasicStatistics statisticsAfterInsert = getBasicStatisticsForTable(onHive(), tableName);
-            assertThat(statisticsAfterInsert.getNumRows().getAsLong()).isEqualTo(25);
-            assertThat(statisticsAfterCreate.getNumFiles().getAsLong()).isEqualTo(50);
+            assertThat(statisticsAfterInsert.getNumRows().getAsLong()).isEqualTo(50);
+            assertThat(statisticsAfterInsert.getNumFiles().getAsLong()).isEqualTo(100);
+
+            insertNationData(onPresto(), tableName);
+
+            BasicStatistics statisticsAfterInsert2 = getBasicStatisticsForTable(onHive(), tableName);
+            assertThat(statisticsAfterInsert2.getNumRows().getAsLong()).isEqualTo(75);
+            assertThat(statisticsAfterInsert2.getNumFiles().getAsLong()).isEqualTo(150);
         }
         finally {
             onPresto().executeQuery(format("DROP TABLE IF EXISTS %s", tableName));
         }
     }
 
-    @Test(groups = {HIVE_TABLE_STATISTICS})
+    @Test
     public void testInsertBucketedPartitioned()
     {
         String tableName = "test_basic_statistics_bucketed_partitioned_insert_presto";
@@ -310,31 +318,32 @@ public class TestHiveBasicTableStatistics
                 "WHERE n_regionkey = 1", tableName));
 
         try {
-            BasicStatistics tableStatistics = getBasicStatisticsForTable(onHive(), tableName);
-            assertThatStatisticsAreNotPresent(tableStatistics);
+            if (getHiveVersionMajor() < 3) {
+                BasicStatistics tableStatistics = getBasicStatisticsForTable(onHive(), tableName);
+                assertThatStatisticsAreNotPresent(tableStatistics);
+            }
 
             BasicStatistics firstPartitionStatistics = getBasicStatisticsForPartition(onHive(), tableName, "n_regionkey=1");
             assertThatStatisticsAreNonZero(firstPartitionStatistics);
             assertThat(firstPartitionStatistics.getNumRows().getAsLong()).isEqualTo(5);
             assertThat(firstPartitionStatistics.getNumFiles().getAsLong()).isEqualTo(10);
 
-            onPresto().executeQuery(format("" +
-                    "INSERT INTO %s (n_nationkey, n_regionkey, n_name, n_comment) " +
+            String insert = format("INSERT INTO %s (n_nationkey, n_regionkey, n_name, n_comment) " +
                     "SELECT n_nationkey, n_regionkey, n_name, n_comment " +
                     "FROM nation " +
-                    "WHERE n_regionkey = 2", tableName));
+                    "WHERE n_regionkey = 2", tableName);
+
+            onPresto().executeQuery(insert);
 
             BasicStatistics secondPartitionStatistics = getBasicStatisticsForPartition(onHive(), tableName, "n_regionkey=2");
             assertThat(secondPartitionStatistics.getNumRows().getAsLong()).isEqualTo(5);
             assertThat(secondPartitionStatistics.getNumFiles().getAsLong()).isEqualTo(10);
 
-            // Insert into existing bucketed partition is not supported
-            assertThatThrownBy(() -> insertNationData(onPresto(), tableName))
-                    .hasMessageContaining("Cannot insert into existing partition of bucketed Hive table");
+            onPresto().executeQuery(insert);
 
             BasicStatistics secondPartitionUpdatedStatistics = getBasicStatisticsForPartition(onHive(), tableName, "n_regionkey=2");
-            assertThat(secondPartitionUpdatedStatistics.getNumRows().getAsLong()).isEqualTo(5);
-            assertThat(secondPartitionUpdatedStatistics.getNumFiles().getAsLong()).isEqualTo(10);
+            assertThat(secondPartitionUpdatedStatistics.getNumRows().getAsLong()).isEqualTo(10);
+            assertThat(secondPartitionUpdatedStatistics.getNumFiles().getAsLong()).isEqualTo(20);
         }
         finally {
             onPresto().executeQuery(format("DROP TABLE IF EXISTS %s", tableName));
@@ -414,7 +423,7 @@ public class TestHiveBasicTableStatistics
     private static OptionalLong getTableParameterValue(QueryResult describeResult, String key)
     {
         verify(describeResult.getColumnsCount() == 3, "describe result is expected to have 3 columns");
-        for (List<Object> row : describeResult.rows()) {
+        for (List<?> row : describeResult.rows()) {
             Optional<String> parameterKey = Optional.ofNullable(row.get(1))
                     .map(Object::toString)
                     .map(String::trim);

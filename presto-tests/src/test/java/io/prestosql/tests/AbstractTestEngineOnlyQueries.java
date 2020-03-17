@@ -15,6 +15,7 @@ package io.prestosql.tests;
 
 import io.prestosql.Session;
 import io.prestosql.spi.type.TimeZoneKey;
+import io.prestosql.testing.AbstractTestQueryFramework;
 import org.intellij.lang.annotations.Language;
 import org.testng.annotations.Test;
 
@@ -34,11 +35,6 @@ import static org.testng.Assert.assertEquals;
 public abstract class AbstractTestEngineOnlyQueries
         extends AbstractTestQueryFramework
 {
-    protected AbstractTestEngineOnlyQueries(QueryRunnerSupplier supplier)
-    {
-        super(supplier);
-    }
-
     @Test
     public void testTimeLiterals()
     {
@@ -54,7 +50,7 @@ public abstract class AbstractTestEngineOnlyQueries
         assertEquals(computeScalar("SELECT TIME '3:04:05.123'"), LocalTime.of(3, 4, 5, 123_000_000));
         assertQuery("SELECT TIME '3:04:05'");
         assertQuery("SELECT TIME '0:04:05'");
-        // TODO https://github.com/prestodb/presto/issues/7122
+        // TODO https://github.com/prestosql/presto/issues/37
         // TODO assertQuery(chicago, "SELECT TIME '3:04:05'");
         // TODO assertQuery(kathmandu, "SELECT TIME '3:04:05'");
 
@@ -68,7 +64,7 @@ public abstract class AbstractTestEngineOnlyQueries
         assertEquals(computeScalar("SELECT TIMESTAMP '1960-01-22 3:04:05.123'"), LocalDateTime.of(1960, 1, 22, 3, 4, 5, 123_000_000));
         assertQuery("SELECT TIMESTAMP '1960-01-22 3:04:05'");
         assertQuery("SELECT TIMESTAMP '1960-01-22 3:04:05.123'");
-        // TODO https://github.com/prestodb/presto/issues/7122
+        // TODO https://github.com/prestosql/presto/issues/37
         // TODO assertQuery(chicago, "SELECT TIMESTAMP '1960-01-22 3:04:05.123'");
         // TODO assertQuery(kathmandu, "SELECT TIMESTAMP '1960-01-22 3:04:05.123'");
 

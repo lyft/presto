@@ -22,9 +22,9 @@ import com.microsoft.sqlserver.jdbc.SQLServerDriver;
 import io.prestosql.plugin.jdbc.BaseJdbcConfig;
 import io.prestosql.plugin.jdbc.ConnectionFactory;
 import io.prestosql.plugin.jdbc.DriverConnectionFactory;
+import io.prestosql.plugin.jdbc.ForBaseJdbc;
 import io.prestosql.plugin.jdbc.JdbcClient;
-
-import static io.airlift.configuration.ConfigBinder.configBinder;
+import io.prestosql.plugin.jdbc.credential.CredentialProvider;
 
 public class SqlServerClientModule
         implements Module
@@ -32,14 +32,14 @@ public class SqlServerClientModule
     @Override
     public void configure(Binder binder)
     {
-        binder.bind(JdbcClient.class).to(SqlServerClient.class).in(Scopes.SINGLETON);
-        configBinder(binder).bindConfig(BaseJdbcConfig.class);
+        binder.bind(JdbcClient.class).annotatedWith(ForBaseJdbc.class).to(SqlServerClient.class).in(Scopes.SINGLETON);
     }
 
     @Provides
     @Singleton
-    public ConnectionFactory getConnectionFactory(BaseJdbcConfig config)
+    @ForBaseJdbc
+    public ConnectionFactory getConnectionFactory(BaseJdbcConfig config, CredentialProvider credentialProvider)
     {
-        return new DriverConnectionFactory(new SQLServerDriver(), config);
+        return new DriverConnectionFactory(new SQLServerDriver(), config, credentialProvider);
     }
 }

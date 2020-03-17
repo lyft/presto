@@ -36,9 +36,7 @@ import static java.util.Objects.requireNonNull;
 
 public final class QueryCardinalityUtil
 {
-    private QueryCardinalityUtil()
-    {
-    }
+    private QueryCardinalityUtil() {}
 
     public static boolean isScalar(PlanNode node)
     {
@@ -63,6 +61,16 @@ public final class QueryCardinalityUtil
     public static boolean isAtMost(PlanNode node, Lookup lookup, long maxCardinality)
     {
         return Range.closed(0L, maxCardinality).encloses(extractCardinality(node, lookup));
+    }
+
+    public static boolean isAtLeastScalar(PlanNode node, Lookup lookup)
+    {
+        return isAtLeast(node, lookup, 1L);
+    }
+
+    public static boolean isAtLeast(PlanNode node, Lookup lookup, long minCardinality)
+    {
+        return Range.atLeast(minCardinality).encloses(extractCardinality(node, lookup));
     }
 
     public static Range<Long> extractCardinality(PlanNode node)

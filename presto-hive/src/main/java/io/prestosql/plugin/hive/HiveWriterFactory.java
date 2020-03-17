@@ -30,6 +30,7 @@ import io.prestosql.plugin.hive.metastore.Partition;
 import io.prestosql.plugin.hive.metastore.SortingColumn;
 import io.prestosql.plugin.hive.metastore.StorageFormat;
 import io.prestosql.plugin.hive.metastore.Table;
+import io.prestosql.plugin.hive.util.HiveWriteUtils;
 import io.prestosql.spi.NodeManager;
 import io.prestosql.spi.Page;
 import io.prestosql.spi.PageSorter;
@@ -76,13 +77,16 @@ import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_PATH_ALREADY_EXISTS;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_TABLE_READ_ONLY;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_UNSUPPORTED_FORMAT;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_WRITER_OPEN_ERROR;
-import static io.prestosql.plugin.hive.HiveUtil.getColumnNames;
-import static io.prestosql.plugin.hive.HiveUtil.getColumnTypes;
-import static io.prestosql.plugin.hive.HiveWriteUtils.createPartitionValues;
+import static io.prestosql.plugin.hive.HiveSessionProperties.getCompressionCodec;
 import static io.prestosql.plugin.hive.LocationHandle.WriteMode.DIRECT_TO_TARGET_EXISTING_DIRECTORY;
 import static io.prestosql.plugin.hive.metastore.MetastoreUtil.getHiveSchema;
 import static io.prestosql.plugin.hive.metastore.StorageFormat.fromHiveStorageFormat;
+import static io.prestosql.plugin.hive.orc.OrcFileWriterFactory.createOrcDataSink;
+import static io.prestosql.plugin.hive.util.CompressionConfigUtil.configureCompression;
 import static io.prestosql.plugin.hive.util.ConfigurationUtils.toJobConf;
+import static io.prestosql.plugin.hive.util.HiveUtil.getColumnNames;
+import static io.prestosql.plugin.hive.util.HiveUtil.getColumnTypes;
+import static io.prestosql.plugin.hive.util.HiveWriteUtils.createPartitionValues;
 import static io.prestosql.spi.StandardErrorCode.NOT_FOUND;
 import static java.lang.Math.min;
 import static java.lang.String.format;
@@ -137,8 +141,6 @@ public class HiveWriterFactory
 
     private final HiveWriterStats hiveWriterStats;
 
-    private final OrcFileWriterFactory orcFileWriterFactory;
-
     public HiveWriterFactory(
             Set<HiveFileWriterFactory> fileWriterFactories,
             String schemaName,
@@ -164,8 +166,7 @@ public class HiveWriterFactory
             NodeManager nodeManager,
             EventClient eventClient,
             HiveSessionProperties hiveSessionProperties,
-            HiveWriterStats hiveWriterStats,
-            OrcFileWriterFactory orcFileWriterFactory)
+            HiveWriterStats hiveWriterStats)
     {
         this.fileWriterFactories = ImmutableSet.copyOf(requireNonNull(fileWriterFactories, "fileWriterFactories is null"));
         this.schemaName = requireNonNull(schemaName, "schemaName is null");
@@ -201,7 +202,7 @@ public class HiveWriterFactory
             HiveType hiveType = column.getHiveType();
             if (column.isPartitionKey()) {
                 partitionColumnNames.add(column.getName());
-                partitionColumnTypes.add(typeManager.getType(column.getTypeSignature()));
+                partitionColumnTypes.add(column.getType());
             }
             else {
                 dataColumns.add(new DataColumn(column.getName(), hiveType));
@@ -244,6 +245,7 @@ public class HiveWriterFactory
                         entry -> session.getProperty(entry.getName(), entry.getJavaType()).toString()));
 
         Configuration conf = hdfsEnvironment.getConfiguration(new HdfsContext(session, schemaName, tableName), writePath);
+        configureCompression(conf, getCompressionCodec(session));
         this.conf = toJobConf(conf);
 
         // make sure the FileSystem is created with the correct Configuration object
@@ -255,8 +257,6 @@ public class HiveWriterFactory
         }
 
         this.hiveWriterStats = requireNonNull(hiveWriterStats, "hiveWriterStats is null");
-
-        this.orcFileWriterFactory = requireNonNull(orcFileWriterFactory, "orcFileWriterFactory is null");
     }
 
     public HiveWriter createWriter(Page partitionColumns, int position, OptionalInt bucketNumber)
@@ -346,9 +346,6 @@ public class HiveWriterFactory
                     switch (insertExistingPartitionsBehavior) {
                         case APPEND:
                             checkState(!immutablePartitions);
-                            if (bucketNumber.isPresent()) {
-                                throw new PrestoException(HIVE_TABLE_READ_ONLY, "Cannot insert into bucketed unpartitioned Hive table");
-                            }
                             updateMode = UpdateMode.APPEND;
                             writeInfo = locationService.getTableWriteInfo(locationHandle, false);
                             break;
@@ -380,9 +377,6 @@ public class HiveWriterFactory
             if (insertExistingPartitionsBehavior == InsertExistingPartitionsBehavior.APPEND) {
                 // Append to an existing partition
                 checkState(!immutablePartitions);
-                if (bucketNumber.isPresent()) {
-                    throw new PrestoException(HIVE_PARTITION_READ_ONLY, "Cannot insert into existing partition of bucketed Hive table: " + partitionName.get());
-                }
                 updateMode = UpdateMode.APPEND;
                 // Check the column types in partition schema match the column types in table schema
                 List<Column> tableColumns = table.getDataColumns();
@@ -443,9 +437,9 @@ public class HiveWriterFactory
 
         Path path = new Path(writeInfo.getWritePath(), fileNameWithExtension);
 
-        HiveFileWriter hiveFileWriter = null;
+        FileWriter hiveFileWriter = null;
         for (HiveFileWriterFactory fileWriterFactory : fileWriterFactories) {
-            Optional<HiveFileWriter> fileWriter = fileWriterFactory.createFileWriter(
+            Optional<FileWriter> fileWriter = fileWriterFactory.createFileWriter(
                     path,
                     dataColumns.stream()
                             .map(DataColumn::getName)
@@ -479,9 +473,9 @@ public class HiveWriterFactory
         Consumer<HiveWriter> onCommit = hiveWriter -> {
             Optional<Long> size;
             try {
-                size = Optional.of(hdfsEnvironment.getFileSystem(session.getUser(), path, conf).getFileStatus(path).getLen());
+                size = Optional.of(hiveWriter.getWrittenBytes());
             }
-            catch (IOException | RuntimeException e) {
+            catch (RuntimeException e) {
                 // Do not fail the query if file system is not available
                 size = Optional.empty();
             }
@@ -542,7 +536,7 @@ public class HiveWriterFactory
                     sortFields,
                     sortOrders,
                     pageSorter,
-                    (fs, p) -> orcFileWriterFactory.createOrcDataSink(session, fs, p));
+                    (fs, p) -> createOrcDataSink(session, fs, p));
         }
 
         return new HiveWriter(

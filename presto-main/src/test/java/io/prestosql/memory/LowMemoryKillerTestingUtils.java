@@ -28,11 +28,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.prestosql.memory.LocalMemoryManager.GENERAL_POOL;
 import static io.prestosql.memory.LocalMemoryManager.RESERVED_POOL;
 
-public class LowMemoryKillerTestingUtils
+public final class LowMemoryKillerTestingUtils
 {
     private LowMemoryKillerTestingUtils() {}
 
@@ -85,7 +84,7 @@ public class LowMemoryKillerTestingUtils
                                 ImmutableMap.of(),
                                 ImmutableMap.of()));
             }
-            result.add(new MemoryInfo(7, new DataSize(maxReservedPoolBytes + maxGeneralPoolBytes, BYTE), pools.build()));
+            result.add(new MemoryInfo(7, DataSize.ofBytes(maxReservedPoolBytes + maxGeneralPoolBytes), pools.build()));
         }
         return result.build();
     }

@@ -38,9 +38,11 @@ public class TestHiveS3Config
                 .setS3AwsSecretKey(null)
                 .setS3Endpoint(null)
                 .setS3SignerType(null)
+                .setS3SignerClass(null)
                 .setS3PathStyleAccess(false)
                 .setS3UseInstanceCredentials(true)
                 .setS3IamRole(null)
+                .setS3StorageClass(PrestoS3StorageClass.STANDARD)
                 .setS3SslEnabled(true)
                 .setS3SseEnabled(false)
                 .setS3SseType(PrestoS3SseType.S3)
@@ -53,14 +55,15 @@ public class TestHiveS3Config
                 .setS3MaxRetryTime(new Duration(10, TimeUnit.MINUTES))
                 .setS3ConnectTimeout(new Duration(5, TimeUnit.SECONDS))
                 .setS3SocketTimeout(new Duration(5, TimeUnit.SECONDS))
-                .setS3MultipartMinFileSize(new DataSize(16, Unit.MEGABYTE))
-                .setS3MultipartMinPartSize(new DataSize(5, Unit.MEGABYTE))
+                .setS3MultipartMinFileSize(DataSize.of(16, Unit.MEGABYTE))
+                .setS3MultipartMinPartSize(DataSize.of(5, Unit.MEGABYTE))
                 .setS3MaxConnections(500)
                 .setS3StagingDirectory(new File(StandardSystemProperty.JAVA_IO_TMPDIR.value()))
                 .setPinS3ClientToCurrentRegion(false)
                 .setS3UserAgentPrefix("")
                 .setS3AclType(PrestoS3AclType.PRIVATE)
-                .setSkipGlacierObjects(false));
+                .setSkipGlacierObjects(false)
+                .setRequesterPaysEnabled(false));
     }
 
     @Test
@@ -71,9 +74,11 @@ public class TestHiveS3Config
                 .put("hive.s3.aws-secret-key", "secret")
                 .put("hive.s3.endpoint", "endpoint.example.com")
                 .put("hive.s3.signer-type", "S3SignerType")
+                .put("hive.s3.signer-class", "com.amazonaws.services.s3.internal.AWSS3V4Signer")
                 .put("hive.s3.path-style-access", "true")
                 .put("hive.s3.use-instance-credentials", "false")
                 .put("hive.s3.iam-role", "roleArn")
+                .put("hive.s3.storage-class", "INTELLIGENT_TIERING")
                 .put("hive.s3.ssl.enabled", "false")
                 .put("hive.s3.sse.enabled", "true")
                 .put("hive.s3.sse.type", "KMS")
@@ -94,6 +99,7 @@ public class TestHiveS3Config
                 .put("hive.s3.user-agent-prefix", "user-agent-prefix")
                 .put("hive.s3.upload-acl-type", "PUBLIC_READ")
                 .put("hive.s3.skip-glacier-objects", "true")
+                .put("hive.s3.requester-pays.enabled", "true")
                 .build();
 
         HiveS3Config expected = new HiveS3Config()
@@ -101,9 +107,11 @@ public class TestHiveS3Config
                 .setS3AwsSecretKey("secret")
                 .setS3Endpoint("endpoint.example.com")
                 .setS3SignerType(PrestoS3SignerType.S3SignerType)
+                .setS3SignerClass("com.amazonaws.services.s3.internal.AWSS3V4Signer")
                 .setS3PathStyleAccess(true)
                 .setS3UseInstanceCredentials(false)
                 .setS3IamRole("roleArn")
+                .setS3StorageClass(PrestoS3StorageClass.INTELLIGENT_TIERING)
                 .setS3SslEnabled(false)
                 .setS3SseEnabled(true)
                 .setS3SseType(PrestoS3SseType.KMS)
@@ -116,14 +124,15 @@ public class TestHiveS3Config
                 .setS3MaxRetryTime(new Duration(20, TimeUnit.MINUTES))
                 .setS3ConnectTimeout(new Duration(8, TimeUnit.SECONDS))
                 .setS3SocketTimeout(new Duration(4, TimeUnit.MINUTES))
-                .setS3MultipartMinFileSize(new DataSize(32, Unit.MEGABYTE))
-                .setS3MultipartMinPartSize(new DataSize(15, Unit.MEGABYTE))
+                .setS3MultipartMinFileSize(DataSize.of(32, Unit.MEGABYTE))
+                .setS3MultipartMinPartSize(DataSize.of(15, Unit.MEGABYTE))
                 .setS3MaxConnections(77)
                 .setS3StagingDirectory(new File("/s3-staging"))
                 .setPinS3ClientToCurrentRegion(true)
                 .setS3UserAgentPrefix("user-agent-prefix")
                 .setS3AclType(PrestoS3AclType.PUBLIC_READ)
-                .setSkipGlacierObjects(true);
+                .setSkipGlacierObjects(true)
+                .setRequesterPaysEnabled(true);
 
         assertFullMapping(properties, expected);
     }

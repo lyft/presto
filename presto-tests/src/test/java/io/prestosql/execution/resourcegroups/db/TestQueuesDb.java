@@ -25,8 +25,8 @@ import io.prestosql.server.BasicQueryInfo;
 import io.prestosql.server.ResourceGroupInfo;
 import io.prestosql.spi.QueryId;
 import io.prestosql.spi.resourcegroups.ResourceGroupId;
+import io.prestosql.testing.DistributedQueryRunner;
 import io.prestosql.testing.MaterializedResult;
-import io.prestosql.tests.DistributedQueryRunner;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -96,7 +96,9 @@ public class TestQueuesDb
     {
         queryRunner.execute("SELECT COUNT(*), clerk FROM orders GROUP BY clerk");
         while (true) {
-            ResourceGroupInfo global = queryRunner.getCoordinator().getResourceGroupManager().get().getResourceGroupInfo(new ResourceGroupId(new ResourceGroupId("global"), "bi-user"));
+            ResourceGroupInfo global = queryRunner.getCoordinator().getResourceGroupManager().get()
+                    .tryGetResourceGroupInfo(new ResourceGroupId(new ResourceGroupId("global"), "bi-user"))
+                    .orElseThrow(() -> new IllegalStateException("Resource group not found"));
             if (global.getSoftMemoryLimit().toBytes() > 0) {
                 break;
             }
@@ -336,7 +338,6 @@ public class TestQueuesDb
                 .setSchema("sf100000")
                 .setSource("non-leaf")
                 .build();
-        QueryManager queryManager = queryRunner.getCoordinator().getQueryManager();
         InternalResourceGroupManager<?> manager = queryRunner.getCoordinator().getResourceGroupManager().get();
         DbResourceGroupConfigurationManager dbConfigurationManager = (DbResourceGroupConfigurationManager) manager.getConfigurationManager();
         int originalSize = getSelectors(queryRunner).size();

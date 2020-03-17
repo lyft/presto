@@ -97,7 +97,7 @@ public class Assignments
         return assignments;
     }
 
-    public <C> Assignments rewrite(ExpressionRewriter<C> rewriter)
+    public Assignments rewrite(ExpressionRewriter<Void> rewriter)
     {
         return rewrite(expression -> ExpressionTreeRewriter.rewriteWith(rewriter, expression));
     }
@@ -126,6 +126,18 @@ public class Assignments
         Expression expression = assignments.get(output);
 
         return expression instanceof SymbolReference && ((SymbolReference) expression).getName().equals(output.getName());
+    }
+
+    public boolean isIdentity()
+    {
+        for (Map.Entry<Symbol, Expression> entry : assignments.entrySet()) {
+            Expression expression = entry.getValue();
+            Symbol symbol = entry.getKey();
+            if (!(expression instanceof SymbolReference && ((SymbolReference) expression).getName().equals(symbol.getName()))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private Collector<Entry<Symbol, Expression>, Builder, Assignments> toAssignments()

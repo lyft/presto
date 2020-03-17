@@ -18,7 +18,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import io.prestosql.sql.planner.SortExpressionContext;
+import io.prestosql.cost.PlanNodeStatsAndCostSummary;
 import io.prestosql.sql.planner.Symbol;
 import io.prestosql.sql.tree.ComparisonExpression;
 import io.prestosql.sql.tree.Expression;
@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.prestosql.sql.planner.SortExpressionExtractor.extractSortExpression;
 import static io.prestosql.sql.planner.plan.JoinNode.DistributionType.PARTITIONED;
 import static io.prestosql.sql.planner.plan.JoinNode.DistributionType.REPLICATED;
 import static io.prestosql.sql.planner.plan.JoinNode.Type.FULL;
@@ -62,6 +61,9 @@ public class JoinNode
     private final Optional<Boolean> spillable;
     private final Map<String, Symbol> dynamicFilters;
 
+    // stats and cost used for join reordering
+    private final Optional<PlanNodeStatsAndCostSummary> reorderJoinStatsAndCost;
+
     @JsonCreator
     public JoinNode(
             @JsonProperty("id") PlanNodeId id,
@@ -75,7 +77,8 @@ public class JoinNode
             @JsonProperty("rightHashSymbol") Optional<Symbol> rightHashSymbol,
             @JsonProperty("distributionType") Optional<DistributionType> distributionType,
             @JsonProperty("spillable") Optional<Boolean> spillable,
-            @JsonProperty("dynamicFilters") Map<String, Symbol> dynamicFilters)
+            @JsonProperty("dynamicFilters") Map<String, Symbol> dynamicFilters,
+            @JsonProperty("reorderJoinStatsAndCost") Optional<PlanNodeStatsAndCostSummary> reorderJoinStatsAndCost)
     {
         super(id);
         requireNonNull(type, "type is null");
@@ -100,16 +103,25 @@ public class JoinNode
         this.distributionType = distributionType;
         this.spillable = spillable;
         this.dynamicFilters = ImmutableMap.copyOf(requireNonNull(dynamicFilters, "dynamicFilters is null"));
+        this.reorderJoinStatsAndCost = requireNonNull(reorderJoinStatsAndCost, "reorderJoinStatsAndCost is null");
 
+        Set<Symbol> leftSymbols = ImmutableSet.copyOf(left.getOutputSymbols());
+        Set<Symbol> rightSymbols = ImmutableSet.copyOf(right.getOutputSymbols());
         Set<Symbol> inputSymbols = ImmutableSet.<Symbol>builder()
-                .addAll(left.getOutputSymbols())
-                .addAll(right.getOutputSymbols())
+                .addAll(leftSymbols)
+                .addAll(rightSymbols)
                 .build();
         checkArgument(new HashSet<>(inputSymbols).containsAll(outputSymbols), "Left and right join inputs do not contain all output symbols");
         checkArgument(!isCrossJoin() || inputSymbols.size() == outputSymbols.size(), "Cross join does not support output symbols pruning or reordering");
 
         checkArgument(!(criteria.isEmpty() && leftHashSymbol.isPresent()), "Left hash symbol is only valid in an equijoin");
         checkArgument(!(criteria.isEmpty() && rightHashSymbol.isPresent()), "Right hash symbol is only valid in an equijoin");
+
+        criteria.forEach(equiJoinClause ->
+                checkArgument(
+                        leftSymbols.contains(equiJoinClause.getLeft()) &&
+                                rightSymbols.contains(equiJoinClause.getRight()),
+                        "Equality join criteria should be normalized according to join sides: %s", equiJoinClause));
 
         if (distributionType.isPresent()) {
             // The implementation of full outer join only works if the data is hash partitioned.
@@ -127,7 +139,7 @@ public class JoinNode
         }
 
         for (Symbol symbol : dynamicFilters.values()) {
-            checkArgument(right.getOutputSymbols().contains(symbol), "Right join input doesn't contain symbol for dynamic filter: %s", symbol);
+            checkArgument(rightSymbols.contains(symbol), "Right join input doesn't contain symbol for dynamic filter: %s", symbol);
         }
     }
 
@@ -145,7 +157,8 @@ public class JoinNode
                 leftHashSymbol,
                 distributionType,
                 spillable,
-                ImmutableMap.of()); // dynamicFilters are invalid after flipping children
+                ImmutableMap.of(), // dynamicFilters are invalid after flipping children
+                reorderJoinStatsAndCost);
     }
 
     private static Type flipType(Type type)
@@ -259,12 +272,6 @@ public class JoinNode
         return filter;
     }
 
-    public Optional<SortExpressionContext> getSortExpressionContext()
-    {
-        return filter
-                .flatMap(filter -> extractSortExpression(ImmutableSet.copyOf(right.getOutputSymbols()), filter));
-    }
-
     @JsonProperty("leftHashSymbol")
     public Optional<Symbol> getLeftHashSymbol()
     {
@@ -308,6 +315,12 @@ public class JoinNode
         return dynamicFilters;
     }
 
+    @JsonProperty
+    public Optional<PlanNodeStatsAndCostSummary> getReorderJoinStatsAndCost()
+    {
+        return reorderJoinStatsAndCost;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context)
     {
@@ -318,17 +331,22 @@ public class JoinNode
     public PlanNode replaceChildren(List<PlanNode> newChildren)
     {
         checkArgument(newChildren.size() == 2, "expected newChildren to contain 2 nodes");
-        return new JoinNode(getId(), type, newChildren.get(0), newChildren.get(1), criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType, spillable, dynamicFilters);
+        return new JoinNode(getId(), type, newChildren.get(0), newChildren.get(1), criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public JoinNode withDistributionType(DistributionType distributionType)
     {
-        return new JoinNode(getId(), type, left, right, criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, Optional.of(distributionType), spillable, dynamicFilters);
+        return new JoinNode(getId(), type, left, right, criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, Optional.of(distributionType), spillable, dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public JoinNode withSpillable(boolean spillable)
     {
-        return new JoinNode(getId(), type, left, right, criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType, Optional.of(spillable), dynamicFilters);
+        return new JoinNode(getId(), type, left, right, criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType, Optional.of(spillable), dynamicFilters, reorderJoinStatsAndCost);
+    }
+
+    public JoinNode withReorderJoinStatsAndCost(PlanNodeStatsAndCostSummary statsAndCost)
+    {
+        return new JoinNode(getId(), type, left, right, criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType, spillable, dynamicFilters, Optional.of(statsAndCost));
     }
 
     public boolean isCrossJoin()

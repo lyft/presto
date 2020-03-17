@@ -22,7 +22,6 @@ import io.prestosql.plugin.jdbc.JdbcColumnHandle;
 import io.prestosql.plugin.jdbc.JdbcIdentity;
 import io.prestosql.plugin.jdbc.JdbcTableHandle;
 import io.prestosql.plugin.jdbc.JdbcTypeHandle;
-import io.prestosql.plugin.jdbc.StatsCollecting;
 import io.prestosql.plugin.jdbc.WriteMapping;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorSession;
@@ -36,6 +35,7 @@ import javax.inject.Inject;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
@@ -48,6 +48,7 @@ import static io.prestosql.plugin.jdbc.StandardColumnMappings.varcharWriteFuncti
 import static io.prestosql.spi.type.BooleanType.BOOLEAN;
 import static io.prestosql.spi.type.Varchars.isVarcharType;
 import static java.lang.String.format;
+import static java.util.stream.Collectors.joining;
 
 public class SqlServerClient
         extends BaseJdbcClient
@@ -66,7 +67,7 @@ public class SqlServerClient
     };
 
     @Inject
-    public SqlServerClient(BaseJdbcConfig config, @StatsCollecting ConnectionFactory connectionFactory)
+    public SqlServerClient(BaseJdbcConfig config, ConnectionFactory connectionFactory)
     {
         super(config, "\"", connectionFactory);
     }
@@ -102,10 +103,28 @@ public class SqlServerClient
     }
 
     @Override
-    public Optional<ColumnMapping> toPrestoType(ConnectorSession session, Connection connection, JdbcTypeHandle type)
+    protected void copyTableSchema(Connection connection, String catalogName, String schemaName, String tableName, String newTableName, List<String> columnNames)
+            throws SQLException
     {
+        String sql = format(
+                "SELECT %s INTO %s FROM %s WHERE 0 = 1",
+                columnNames.stream()
+                        .map(this::quoted)
+                        .collect(joining(", ")),
+                quoted(catalogName, schemaName, newTableName),
+                quoted(catalogName, schemaName, tableName));
+        execute(connection, sql);
+    }
+
+    @Override
+    public Optional<ColumnMapping> toPrestoType(ConnectorSession session, Connection connection, JdbcTypeHandle typeHandle)
+    {
+        Optional<ColumnMapping> mapping = getForcedMappingToVarchar(typeHandle);
+        if (mapping.isPresent()) {
+            return mapping;
+        }
         // TODO implement proper type mapping
-        return super.toPrestoType(session, connection, type)
+        return super.toPrestoType(session, connection, typeHandle)
                 .map(columnMapping -> new ColumnMapping(
                         columnMapping.getType(),
                         columnMapping.getReadFunction(),

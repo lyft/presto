@@ -18,6 +18,7 @@ import io.prestosql.Session;
 import io.prestosql.connector.CatalogName;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.security.AccessControl;
+import io.prestosql.security.SecurityContext;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.session.PropertyMetadata;
 import io.prestosql.spi.type.Type;
@@ -33,6 +34,7 @@ import static io.prestosql.metadata.SessionPropertyManager.evaluatePropertyValue
 import static io.prestosql.metadata.SessionPropertyManager.serializeSessionProperty;
 import static io.prestosql.spi.StandardErrorCode.CATALOG_NOT_FOUND;
 import static io.prestosql.spi.StandardErrorCode.INVALID_SESSION_PROPERTY;
+import static io.prestosql.sql.ParameterUtils.parameterExtractor;
 import static io.prestosql.sql.analyzer.SemanticExceptions.semanticException;
 import static java.lang.String.format;
 
@@ -65,7 +67,7 @@ public class SetSessionTask
         else {
             CatalogName catalogName = metadata.getCatalogHandle(stateMachine.getSession(), parts.get(0))
                     .orElseThrow(() -> semanticException(CATALOG_NOT_FOUND, statement, "Catalog %s does not exist", parts.get(0)));
-            accessControl.checkCanSetCatalogSessionProperty(session.getRequiredTransactionId(), session.getIdentity(), parts.get(0), parts.get(1));
+            accessControl.checkCanSetCatalogSessionProperty(SecurityContext.of(session), parts.get(0), parts.get(1));
             propertyMetadata = metadata.getSessionPropertyManager().getConnectorSessionPropertyMetadata(catalogName, parts.get(1))
                     .orElseThrow(() -> semanticException(INVALID_SESSION_PROPERTY, statement, "Session property %s does not exist", statement.getName()));
         }
@@ -74,7 +76,7 @@ public class SetSessionTask
         Object objectValue;
 
         try {
-            objectValue = evaluatePropertyValue(statement.getValue(), type, session, metadata, parameters);
+            objectValue = evaluatePropertyValue(statement.getValue(), type, session, metadata, accessControl, parameterExtractor(statement, parameters));
         }
         catch (PrestoException e) {
             throw new PrestoException(

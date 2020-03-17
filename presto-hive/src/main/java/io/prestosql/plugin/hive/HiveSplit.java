@@ -17,6 +17,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import io.prestosql.plugin.hive.util.HiveBucketing.BucketingVersion;
 import io.prestosql.spi.HostAddress;
 import io.prestosql.spi.connector.ConnectorSplit;
 
@@ -38,6 +39,7 @@ public class HiveSplit
     private final long start;
     private final long length;
     private final long fileSize;
+    private final long fileModifiedTime;
     private final Properties schema;
     private final List<HivePartitionKey> partitionKeys;
     private final List<HostAddress> addresses;
@@ -49,6 +51,7 @@ public class HiveSplit
     private final Map<Integer, HiveType> columnCoercions; // key: hiveColumnIndex
     private final Optional<BucketConversion> bucketConversion;
     private final boolean s3SelectPushdownEnabled;
+    private final Optional<DeleteDeltaLocations> deleteDeltaLocations;
 
     @JsonCreator
     public HiveSplit(
@@ -59,6 +62,7 @@ public class HiveSplit
             @JsonProperty("start") long start,
             @JsonProperty("length") long length,
             @JsonProperty("fileSize") long fileSize,
+            @JsonProperty("fileModifiedTime") long fileModifiedTime,
             @JsonProperty("schema") Properties schema,
             @JsonProperty("partitionKeys") List<HivePartitionKey> partitionKeys,
             @JsonProperty("addresses") List<HostAddress> addresses,
@@ -66,7 +70,8 @@ public class HiveSplit
             @JsonProperty("forceLocalScheduling") boolean forceLocalScheduling,
             @JsonProperty("columnCoercions") Map<Integer, HiveType> columnCoercions,
             @JsonProperty("bucketConversion") Optional<BucketConversion> bucketConversion,
-            @JsonProperty("s3SelectPushdownEnabled") boolean s3SelectPushdownEnabled)
+            @JsonProperty("s3SelectPushdownEnabled") boolean s3SelectPushdownEnabled,
+            @JsonProperty("deleteDeltaLocations") Optional<DeleteDeltaLocations> deleteDeltaLocations)
     {
         checkArgument(start >= 0, "start must be positive");
         checkArgument(length >= 0, "length must be positive");
@@ -81,6 +86,7 @@ public class HiveSplit
         requireNonNull(bucketNumber, "bucketNumber is null");
         requireNonNull(columnCoercions, "columnCoercions is null");
         requireNonNull(bucketConversion, "bucketConversion is null");
+        requireNonNull(deleteDeltaLocations, "deleteDeltaLocations is null");
 
         this.database = database;
         this.table = table;
@@ -89,6 +95,7 @@ public class HiveSplit
         this.start = start;
         this.length = length;
         this.fileSize = fileSize;
+        this.fileModifiedTime = fileModifiedTime;
         this.schema = schema;
         this.partitionKeys = ImmutableList.copyOf(partitionKeys);
         this.addresses = ImmutableList.copyOf(addresses);
@@ -97,6 +104,7 @@ public class HiveSplit
         this.columnCoercions = columnCoercions;
         this.bucketConversion = bucketConversion;
         this.s3SelectPushdownEnabled = s3SelectPushdownEnabled;
+        this.deleteDeltaLocations = deleteDeltaLocations;
     }
 
     @JsonProperty
@@ -139,6 +147,12 @@ public class HiveSplit
     public long getFileSize()
     {
         return fileSize;
+    }
+
+    @JsonProperty
+    public long getFileModifiedTime()
+    {
+        return fileModifiedTime;
     }
 
     @JsonProperty
@@ -196,6 +210,12 @@ public class HiveSplit
         return s3SelectPushdownEnabled;
     }
 
+    @JsonProperty
+    public Optional<DeleteDeltaLocations> getDeleteDeltaLocations()
+    {
+        return deleteDeltaLocations;
+    }
+
     @Override
     public Object getInfo()
     {
@@ -226,6 +246,7 @@ public class HiveSplit
 
     public static class BucketConversion
     {
+        private final BucketingVersion bucketingVersion;
         private final int tableBucketCount;
         private final int partitionBucketCount;
         private final List<HiveColumnHandle> bucketColumnNames;
@@ -233,13 +254,21 @@ public class HiveSplit
 
         @JsonCreator
         public BucketConversion(
+                @JsonProperty("bucketingVersion") BucketingVersion bucketingVersion,
                 @JsonProperty("tableBucketCount") int tableBucketCount,
                 @JsonProperty("partitionBucketCount") int partitionBucketCount,
                 @JsonProperty("bucketColumnHandles") List<HiveColumnHandle> bucketColumnHandles)
         {
+            this.bucketingVersion = requireNonNull(bucketingVersion, "bucketingVersion is null");
             this.tableBucketCount = tableBucketCount;
             this.partitionBucketCount = partitionBucketCount;
             this.bucketColumnNames = requireNonNull(bucketColumnHandles, "bucketColumnHandles is null");
+        }
+
+        @JsonProperty
+        public BucketingVersion getBucketingVersion()
+        {
+            return bucketingVersion;
         }
 
         @JsonProperty

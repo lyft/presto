@@ -93,11 +93,9 @@ import static io.prestosql.util.CompilerUtils.defineClass;
 import static io.prestosql.util.CompilerUtils.makeClassName;
 import static java.util.Objects.requireNonNull;
 
-public class StateCompiler
+public final class StateCompiler
 {
-    private StateCompiler()
-    {
-    }
+    private StateCompiler() {}
 
     private static Class<?> getBigArrayType(Class<?> type)
     {
@@ -729,24 +727,22 @@ public class StateCompiler
             if (stackType == long.class) {
                 return Optional.of(BIGINT);
             }
-            else if (stackType == double.class) {
+            if (stackType == double.class) {
                 return Optional.of(DOUBLE);
             }
-            else if (stackType == boolean.class) {
+            if (stackType == boolean.class) {
                 return Optional.of(BOOLEAN);
             }
-            else if (stackType == byte.class) {
+            if (stackType == byte.class) {
                 return Optional.of(TINYINT);
             }
-            else if (stackType == int.class) {
+            if (stackType == int.class) {
                 return Optional.of(INTEGER);
             }
-            else if (stackType == Slice.class) {
+            if (stackType == Slice.class) {
                 return Optional.of(VARBINARY);
             }
-            else {
-                return Optional.empty();
-            }
+            return Optional.empty();
         }
 
         String getGetterName()
@@ -791,12 +787,10 @@ public class StateCompiler
             if (initialValue instanceof Number) {
                 return constantNumber((Number) initialValue);
             }
-            else if (initialValue instanceof Boolean) {
+            if (initialValue instanceof Boolean) {
                 return constantBoolean((boolean) initialValue);
             }
-            else {
-                throw new IllegalArgumentException("Unsupported initial value type: " + initialValue.getClass());
-            }
+            throw new IllegalArgumentException("Unsupported initial value type: " + initialValue.getClass());
         }
     }
 }

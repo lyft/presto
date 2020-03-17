@@ -60,9 +60,7 @@ import static io.prestosql.util.DateTimeZoneIndex.unpackChronology;
 
 public final class TimestampWithTimeZoneOperators
 {
-    private TimestampWithTimeZoneOperators()
-    {
-    }
+    private TimestampWithTimeZoneOperators() {}
 
     @ScalarOperator(SUBTRACT)
     @SqlType(StandardTypes.INTERVAL_DAY_TO_SECOND)
@@ -146,9 +144,8 @@ public final class TimestampWithTimeZoneOperators
         if (session.isLegacyTimestamp()) {
             return modulo24Hour(unpackChronology(value), unpackMillisUtc(value));
         }
-        else {
-            return modulo24Hour(castToTimestamp(session, value));
-        }
+
+        return modulo24Hour(castToTimestamp(session, value));
     }
 
     @ScalarOperator(CAST)
@@ -159,17 +156,15 @@ public final class TimestampWithTimeZoneOperators
             int millis = modulo24Hour(unpackChronology(value), unpackMillisUtc(value));
             return packDateTimeWithZone(millis, unpackZoneKey(value));
         }
-        else {
-            long millis = modulo24Hour(castToTimestamp(session, value));
-            ISOChronology localChronology = unpackChronology(value);
 
-            // This cast does treat TIME as wall time in given TZ. This means that in order to get
-            // its UTC representation we need to shift the value by the offset of TZ.
-            // We use value offset in this place to be sure that we will have same hour represented
-            // in TIME WITH TIME ZONE. Calculating real TZ offset will happen when really required.
-            // This is done due to inadequate TIME WITH TIME ZONE representation.
-            return packDateTimeWithZone(millis - localChronology.getZone().getOffset(millis), unpackZoneKey(value));
-        }
+        long millis = modulo24Hour(castToTimestamp(session, value));
+        ISOChronology localChronology = unpackChronology(value);
+        // This cast does treat TIME as wall time in given TZ. This means that in order to get
+        // its UTC representation we need to shift the value by the offset of TZ.
+        // We use value offset in this place to be sure that we will have same hour represented
+        // in TIME WITH TIME ZONE. Calculating real TZ offset will happen when really required.
+        // This is done due to inadequate TIME WITH TIME ZONE representation.
+        return packDateTimeWithZone(millis - localChronology.getZone().getOffset(millis), unpackZoneKey(value));
     }
 
     @ScalarOperator(CAST)
@@ -179,10 +174,9 @@ public final class TimestampWithTimeZoneOperators
         if (session.isLegacyTimestamp()) {
             return unpackMillisUtc(value);
         }
-        else {
-            ISOChronology chronology = getChronology(unpackZoneKey(value));
-            return chronology.getZone().convertUTCToLocal(unpackMillisUtc(value));
-        }
+
+        ISOChronology chronology = getChronology(unpackZoneKey(value));
+        return chronology.getZone().convertUTCToLocal(unpackMillisUtc(value));
     }
 
     @ScalarOperator(CAST)
@@ -221,7 +215,7 @@ public final class TimestampWithTimeZoneOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static class TimestampWithTimeZoneDistinctFromOperator
+    public static final class TimestampWithTimeZoneDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

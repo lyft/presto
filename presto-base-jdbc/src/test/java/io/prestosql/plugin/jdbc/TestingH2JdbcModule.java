@@ -18,34 +18,33 @@ import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
+import io.prestosql.plugin.jdbc.credential.CredentialProvider;
 import org.h2.Driver;
 
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
-import static io.airlift.configuration.ConfigBinder.configBinder;
 import static java.lang.String.format;
 
 class TestingH2JdbcModule
         implements Module
 {
     @Override
-    public void configure(Binder binder)
-    {
-        configBinder(binder).bindConfig(BaseJdbcConfig.class);
-    }
+    public void configure(Binder binder) {}
 
     @Provides
-    public JdbcClient provideJdbcClient(BaseJdbcConfig config, @StatsCollecting ConnectionFactory connectionFactory)
+    @ForBaseJdbc
+    public JdbcClient provideJdbcClient(BaseJdbcConfig config, ConnectionFactory connectionFactory)
     {
         return new BaseJdbcClient(config, "\"", connectionFactory);
     }
 
     @Provides
     @Singleton
-    public ConnectionFactory getConnectionFactory(BaseJdbcConfig config)
+    @ForBaseJdbc
+    public ConnectionFactory getConnectionFactory(BaseJdbcConfig config, CredentialProvider credentialProvider)
     {
-        return new DriverConnectionFactory(new Driver(), config);
+        return new DriverConnectionFactory(new Driver(), config, credentialProvider);
     }
 
     public static Map<String, String> createProperties()

@@ -15,6 +15,7 @@ package io.prestosql.sql.planner.sanity;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import io.prestosql.Session;
 import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.metadata.Metadata;
@@ -26,6 +27,7 @@ import io.prestosql.sql.planner.plan.AggregationNode;
 import io.prestosql.sql.planner.plan.AggregationNode.Aggregation;
 import io.prestosql.sql.planner.plan.ApplyNode;
 import io.prestosql.sql.planner.plan.AssignUniqueId;
+import io.prestosql.sql.planner.plan.CorrelatedJoinNode;
 import io.prestosql.sql.planner.plan.DeleteNode;
 import io.prestosql.sql.planner.plan.DistinctLimitNode;
 import io.prestosql.sql.planner.plan.EnforceSingleRowNode;
@@ -38,7 +40,6 @@ import io.prestosql.sql.planner.plan.IndexJoinNode;
 import io.prestosql.sql.planner.plan.IndexSourceNode;
 import io.prestosql.sql.planner.plan.IntersectNode;
 import io.prestosql.sql.planner.plan.JoinNode;
-import io.prestosql.sql.planner.plan.LateralJoinNode;
 import io.prestosql.sql.planner.plan.LimitNode;
 import io.prestosql.sql.planner.plan.MarkDistinctNode;
 import io.prestosql.sql.planner.plan.OffsetNode;
@@ -78,6 +79,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.prestosql.sql.planner.optimizations.IndexJoinOptimizer.IndexKeyTracer;
+import static io.prestosql.sql.tree.BooleanLiteral.TRUE_LITERAL;
 
 /**
  * Ensures that all dependencies (i.e., symbols in expressions) for a plan node are provided by its source nodes
@@ -126,9 +128,6 @@ public final class ValidateDependenciesChecker
             for (Aggregation aggregation : node.getAggregations().values()) {
                 Set<Symbol> dependencies = SymbolsExtractor.extractUnique(aggregation);
                 checkDependencies(inputs, dependencies, "Invalid node. Aggregation dependencies (%s) not in source plan output (%s)", dependencies, node.getSource().getOutputSymbols());
-                aggregation.getMask().ifPresent(mask -> {
-                    checkDependencies(inputs, ImmutableSet.of(mask), "Invalid node. Aggregation mask symbol (%s) not in source plan output (%s)", mask, node.getSource().getOutputSymbols());
-                });
             }
 
             return null;
@@ -484,12 +483,16 @@ public final class ValidateDependenciesChecker
             PlanNode source = node.getSource();
             source.accept(this, boundSymbols);
 
-            Set<Symbol> required = ImmutableSet.<Symbol>builder()
+            ImmutableSet.Builder<Symbol> required = ImmutableSet.<Symbol>builder()
                     .addAll(node.getReplicateSymbols())
-                    .addAll(node.getUnnestSymbols().keySet())
-                    .build();
-
-            checkDependencies(source.getOutputSymbols(), required, "Invalid node. Dependencies (%s) not in source plan output (%s)", required, source.getOutputSymbols());
+                    .addAll(node.getUnnestSymbols().keySet());
+            ImmutableSet.Builder<Symbol> unnestedSymbols = ImmutableSet.builder();
+            for (List<Symbol> symbols : node.getUnnestSymbols().values()) {
+                unnestedSymbols.addAll(symbols);
+            }
+            Set<Symbol> expectedFilterSymbols = Sets.difference(SymbolsExtractor.extractUnique(node.getFilter().orElse(TRUE_LITERAL)), unnestedSymbols.build());
+            required.addAll(expectedFilterSymbols);
+            checkDependencies(source.getOutputSymbols(), required.build(), "Invalid node. Dependencies (%s) not in source plan output (%s)", required, source.getOutputSymbols());
 
             return null;
         }
@@ -637,7 +640,7 @@ public final class ValidateDependenciesChecker
         }
 
         @Override
-        public Void visitLateralJoin(LateralJoinNode node, Set<Symbol> boundSymbols)
+        public Void visitCorrelatedJoin(CorrelatedJoinNode node, Set<Symbol> boundSymbols)
         {
             Set<Symbol> subqueryCorrelation = ImmutableSet.<Symbol>builder()
                     .addAll(boundSymbols)
@@ -650,11 +653,11 @@ public final class ValidateDependenciesChecker
             checkDependencies(
                     node.getInput().getOutputSymbols(),
                     node.getCorrelation(),
-                    "LATERAL input must provide all the necessary correlation symbols for subquery");
+                    "Correlated JOIN input must provide all the necessary correlation symbols for subquery");
             checkDependencies(
                     SymbolsExtractor.extractUnique(node.getSubquery()),
                     node.getCorrelation(),
-                    "not all LATERAL correlation symbols are used in subquery");
+                    "not all correlated JOIN correlation symbols are used in subquery");
 
             Set<Symbol> inputs = ImmutableSet.<Symbol>builder()
                     .addAll(createInputs(node.getInput(), boundSymbols))

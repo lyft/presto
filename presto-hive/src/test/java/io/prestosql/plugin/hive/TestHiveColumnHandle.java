@@ -13,21 +13,23 @@
  */
 package io.prestosql.plugin.hive;
 
+import com.google.common.collect.ImmutableMap;
 import io.airlift.json.JsonCodec;
-import io.prestosql.spi.type.StandardTypes;
+import io.airlift.json.JsonCodecFactory;
+import io.airlift.json.ObjectMapperProvider;
+import io.prestosql.spi.type.TestingTypeManager;
+import io.prestosql.spi.type.Type;
 import org.testng.annotations.Test;
 
 import java.util.Optional;
 
 import static io.prestosql.plugin.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
 import static io.prestosql.plugin.hive.HiveColumnHandle.ColumnType.REGULAR;
-import static io.prestosql.spi.type.TypeSignature.parseTypeSignature;
+import static io.prestosql.spi.type.DoubleType.DOUBLE;
 import static org.testng.Assert.assertEquals;
 
 public class TestHiveColumnHandle
 {
-    private final JsonCodec<HiveColumnHandle> codec = JsonCodec.jsonCodec(HiveColumnHandle.class);
-
     @Test
     public void testHiddenColumn()
     {
@@ -38,19 +40,23 @@ public class TestHiveColumnHandle
     @Test
     public void testRegularColumn()
     {
-        HiveColumnHandle expectedPartitionColumn = new HiveColumnHandle("name", HiveType.HIVE_FLOAT, parseTypeSignature(StandardTypes.DOUBLE), 88, PARTITION_KEY, Optional.empty());
+        HiveColumnHandle expectedPartitionColumn = new HiveColumnHandle("name", HiveType.HIVE_FLOAT, DOUBLE, 88, PARTITION_KEY, Optional.empty());
         testRoundTrip(expectedPartitionColumn);
     }
 
     @Test
     public void testPartitionKeyColumn()
     {
-        HiveColumnHandle expectedRegularColumn = new HiveColumnHandle("name", HiveType.HIVE_FLOAT, parseTypeSignature(StandardTypes.DOUBLE), 88, REGULAR, Optional.empty());
+        HiveColumnHandle expectedRegularColumn = new HiveColumnHandle("name", HiveType.HIVE_FLOAT, DOUBLE, 88, REGULAR, Optional.empty());
         testRoundTrip(expectedRegularColumn);
     }
 
     private void testRoundTrip(HiveColumnHandle expected)
     {
+        ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
+        objectMapperProvider.setJsonDeserializers(ImmutableMap.of(Type.class, new HiveModule.TypeDeserializer(new TestingTypeManager())));
+        JsonCodec<HiveColumnHandle> codec = new JsonCodecFactory(objectMapperProvider).jsonCodec(HiveColumnHandle.class);
+
         String json = codec.toJson(expected);
         HiveColumnHandle actual = codec.fromJson(json);
 

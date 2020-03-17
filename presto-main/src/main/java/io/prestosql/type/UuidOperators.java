@@ -52,7 +52,7 @@ public final class UuidOperators
 {
     private UuidOperators() {}
 
-    @Description("generates a random UUID")
+    @Description("Generates a random UUID")
     @ScalarFunction(deterministic = false)
     @SqlType(StandardTypes.UUID)
     public static Slice uuid()
@@ -168,7 +168,7 @@ public final class UuidOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static class UuidDistinctFromOperator
+    public static final class UuidDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

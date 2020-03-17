@@ -34,6 +34,7 @@ import static com.google.common.base.Strings.nullToEmpty;
 import static io.airlift.testing.Assertions.assertEqualsIgnoreOrder;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.fail;
 
@@ -52,7 +53,12 @@ class QueryAssertions
 
     public QueryAssertions(Session session)
     {
-        runner = new LocalQueryRunner(session);
+        this(LocalQueryRunner.create(session));
+    }
+
+    public QueryAssertions(QueryRunner runner)
+    {
+        this.runner = requireNonNull(runner, "runner is null");
     }
 
     public void assertFails(@Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp)
@@ -75,7 +81,8 @@ class QueryAssertions
             Consumer<Plan> planValidator)
     {
         assertQuery(actual, expected);
-        Plan plan = runner.createPlan(runner.getDefaultSession(), actual, WarningCollector.NOOP);
+
+        Plan plan = runner.executeWithPlan(runner.getDefaultSession(), actual, WarningCollector.NOOP).getQueryPlan();
         PlanAssert.assertPlan(runner.getDefaultSession(), runner.getMetadata(), runner.getStatsCalculator(), plan, pattern);
         planValidator.accept(plan);
     }
@@ -83,6 +90,11 @@ class QueryAssertions
     public void assertQuery(@Language("SQL") String actual, @Language("SQL") String expected)
     {
         assertQuery(actual, expected, false);
+    }
+
+    public void assertQueryOrdered(@Language("SQL") String actual, @Language("SQL") String expected)
+    {
+        assertQuery(actual, expected, true);
     }
 
     public void assertQuery(@Language("SQL") String actual, @Language("SQL") String expected, boolean ensureOrdering)
@@ -118,6 +130,19 @@ class QueryAssertions
         }
     }
 
+    public void assertQueryReturnsEmptyResult(@Language("SQL") String actual)
+    {
+        MaterializedResult actualResults = null;
+        try {
+            actualResults = execute(actual);
+        }
+        catch (RuntimeException ex) {
+            fail("Execution of 'actual' query failed: " + actual, ex);
+        }
+        List<MaterializedRow> actualRows = actualResults.getMaterializedRows();
+        assertEquals(actualRows.size(), 0);
+    }
+
     public static void assertContains(MaterializedResult all, MaterializedResult expectedSubset)
     {
         for (MaterializedRow row : expectedSubset.getMaterializedRows()) {
@@ -143,5 +168,21 @@ class QueryAssertions
     public void close()
     {
         runner.close();
+    }
+
+    public QueryRunner getQueryRunner()
+    {
+        return runner;
+    }
+
+    protected void executeExclusively(Runnable executionBlock)
+    {
+        runner.getExclusiveLock().lock();
+        try {
+            executionBlock.run();
+        }
+        finally {
+            runner.getExclusiveLock().unlock();
+        }
     }
 }

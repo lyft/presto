@@ -48,6 +48,7 @@ public class InternalHiveSplit
     private final String path;
     private final long end;
     private final long fileSize;
+    private final long fileModifiedTime;
     private final Properties schema;
     private final List<HivePartitionKey> partitionKeys;
     private final List<InternalHiveBlock> blocks;
@@ -58,6 +59,7 @@ public class InternalHiveSplit
     private final Map<Integer, HiveTypeName> columnCoercions;
     private final Optional<BucketConversion> bucketConversion;
     private final boolean s3SelectPushdownEnabled;
+    private final Optional<DeleteDeltaLocations> deleteDeltaLocations;
 
     private long start;
     private int currentBlockIndex;
@@ -68,6 +70,7 @@ public class InternalHiveSplit
             long start,
             long end,
             long fileSize,
+            long fileModifiedTime,
             Properties schema,
             List<HivePartitionKey> partitionKeys,
             List<InternalHiveBlock> blocks,
@@ -76,7 +79,8 @@ public class InternalHiveSplit
             boolean forceLocalScheduling,
             Map<Integer, HiveTypeName> columnCoercions,
             Optional<BucketConversion> bucketConversion,
-            boolean s3SelectPushdownEnabled)
+            boolean s3SelectPushdownEnabled,
+            Optional<DeleteDeltaLocations> deleteDeltaLocations)
     {
         checkArgument(start >= 0, "start must be positive");
         checkArgument(end >= 0, "length must be positive");
@@ -89,12 +93,14 @@ public class InternalHiveSplit
         requireNonNull(bucketNumber, "bucketNumber is null");
         requireNonNull(columnCoercions, "columnCoercions is null");
         requireNonNull(bucketConversion, "bucketConversion is null");
+        requireNonNull(deleteDeltaLocations, "deleteDeltaLocations is null");
 
         this.partitionName = partitionName;
         this.path = path;
         this.start = start;
         this.end = end;
         this.fileSize = fileSize;
+        this.fileModifiedTime = fileModifiedTime;
         this.schema = schema;
         this.partitionKeys = ImmutableList.copyOf(partitionKeys);
         this.blocks = ImmutableList.copyOf(blocks);
@@ -104,6 +110,7 @@ public class InternalHiveSplit
         this.columnCoercions = ImmutableMap.copyOf(columnCoercions);
         this.bucketConversion = bucketConversion;
         this.s3SelectPushdownEnabled = s3SelectPushdownEnabled;
+        this.deleteDeltaLocations = deleteDeltaLocations;
     }
 
     public String getPath()
@@ -124,6 +131,11 @@ public class InternalHiveSplit
     public long getFileSize()
     {
         return fileSize;
+    }
+
+    public long getFileModifiedTime()
+    {
+        return fileModifiedTime;
     }
 
     public boolean isS3SelectPushdownEnabled()
@@ -212,6 +224,11 @@ public class InternalHiveSplit
             result += INTEGER_INSTANCE_SIZE + hiveTypeName.getEstimatedSizeInBytes();
         }
         return result;
+    }
+
+    public Optional<DeleteDeltaLocations> getDeleteDeltaLocations()
+    {
+        return deleteDeltaLocations;
     }
 
     @Override

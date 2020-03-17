@@ -13,6 +13,8 @@
  */
 package io.prestosql.execution;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
@@ -31,14 +33,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalDouble;
 
-import static io.airlift.units.DataSize.Unit.BYTE;
-import static io.airlift.units.DataSize.succinctBytes;
+import static com.google.common.base.Preconditions.checkState;
 import static io.prestosql.SystemSessionProperties.QUERY_PRIORITY;
 import static io.prestosql.execution.QueryState.FAILED;
 import static io.prestosql.execution.QueryState.FINISHED;
 import static io.prestosql.execution.QueryState.QUEUED;
 import static io.prestosql.execution.QueryState.RUNNING;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
+import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
@@ -46,33 +48,41 @@ public class MockManagedQueryExecution
         implements ManagedQueryExecution
 {
     private final List<StateChangeListener<QueryState>> listeners = new ArrayList<>();
-    private final DataSize memoryUsage;
-    private final Duration cpuUsage;
     private final Session session;
+
+    private DataSize memoryUsage;
+    private Duration cpuUsage;
     private QueryState state = QUEUED;
     private Throwable failureCause;
 
-    public MockManagedQueryExecution(long memoryUsage)
+    private MockManagedQueryExecution(String queryId, int priority, DataSize memoryUsage, Duration cpuUsage)
     {
-        this(memoryUsage, "query_id", 1);
-    }
-
-    public MockManagedQueryExecution(long memoryUsage, String queryId, int priority)
-    {
-        this(memoryUsage, queryId, priority, new Duration(0, MILLISECONDS));
-    }
-
-    public MockManagedQueryExecution(long memoryUsage, String queryId, int priority, Duration cpuUsage)
-    {
-        this.memoryUsage = succinctBytes(memoryUsage);
-        this.cpuUsage = cpuUsage;
+        requireNonNull(queryId, "queryId is null");
         this.session = testSessionBuilder()
+                .setQueryId(QueryId.valueOf(queryId))
                 .setSystemProperty(QUERY_PRIORITY, String.valueOf(priority))
                 .build();
+
+        this.memoryUsage = requireNonNull(memoryUsage, "memoryUsage is null");
+        this.cpuUsage = requireNonNull(cpuUsage, "cpuUsage is null");
+    }
+
+    public void consumeCpuTimeMillis(long cpuTimeDeltaMillis)
+    {
+        checkState(state == RUNNING, "cannot consume CPU in a non-running state");
+        long newCpuTime = cpuUsage.toMillis() + cpuTimeDeltaMillis;
+        this.cpuUsage = new Duration(newCpuTime, MILLISECONDS);
+    }
+
+    public void setMemoryUsage(DataSize memoryUsage)
+    {
+        checkState(state == RUNNING, "cannot set memory usage in a non-running state");
+        this.memoryUsage = memoryUsage;
     }
 
     public void complete()
     {
+        memoryUsage = DataSize.ofBytes(0);
         state = FINISHED;
         fireStateChange();
     }
@@ -117,20 +127,117 @@ public class MockManagedQueryExecution
                         7,
                         8,
                         9,
-                        new DataSize(14, BYTE),
+                        DataSize.ofBytes(14),
                         15,
                         16.0,
-                        new DataSize(17, BYTE),
-                        new DataSize(18, BYTE),
-                        new DataSize(19, BYTE),
-                        new DataSize(20, BYTE),
-                        new Duration(21, NANOSECONDS),
+                        memoryUsage,
+                        memoryUsage,
+                        DataSize.ofBytes(19),
+                        DataSize.ofBytes(20),
+                        cpuUsage,
                         new Duration(22, NANOSECONDS),
                         false,
                         ImmutableSet.of(),
                         OptionalDouble.empty()),
                 null,
                 null);
+    }
+
+    @Override
+    public QueryInfo getFullQueryInfo()
+    {
+        return new QueryInfo(
+                new QueryId("test"),
+                session.toSessionRepresentation(),
+                state,
+                new MemoryPoolId("test"),
+                !state.isDone(),
+                URI.create("http://test"),
+                ImmutableList.of(),
+                "SELECT 1",
+                Optional.empty(),
+                new QueryStats(
+                        new DateTime(1),
+                        new DateTime(2),
+                        new DateTime(3),
+                        new DateTime(4),
+                        new Duration(6, NANOSECONDS),
+                        new Duration(5, NANOSECONDS),
+                        new Duration(31, NANOSECONDS),
+                        new Duration(41, NANOSECONDS),
+                        new Duration(7, NANOSECONDS),
+                        new Duration(8, NANOSECONDS),
+
+                        new Duration(100, NANOSECONDS),
+                        new Duration(200, NANOSECONDS),
+
+                        9,
+                        10,
+                        11,
+
+                        12,
+                        13,
+                        15,
+                        30,
+                        16,
+
+                        17.0,
+                        DataSize.ofBytes(18),
+                        DataSize.ofBytes(19),
+                        DataSize.ofBytes(20),
+                        DataSize.ofBytes(21),
+                        DataSize.ofBytes(22),
+                        DataSize.ofBytes(23),
+                        DataSize.ofBytes(24),
+                        DataSize.ofBytes(25),
+                        DataSize.ofBytes(26),
+
+                        true,
+                        new Duration(20, NANOSECONDS),
+                        new Duration(21, NANOSECONDS),
+                        new Duration(23, NANOSECONDS),
+                        false,
+                        ImmutableSet.of(),
+
+                        DataSize.ofBytes(241),
+                        251,
+                        new Duration(24, NANOSECONDS),
+
+                        DataSize.ofBytes(242),
+                        252,
+
+                        DataSize.ofBytes(25),
+                        26,
+
+                        DataSize.ofBytes(27),
+                        28,
+
+                        DataSize.ofBytes(29),
+                        30,
+
+                        DataSize.ofBytes(31),
+
+                        ImmutableList.of(),
+                        ImmutableList.of()),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                ImmutableMap.of(),
+                ImmutableSet.of(),
+                ImmutableMap.of(),
+                ImmutableMap.of(),
+                ImmutableSet.of(),
+                Optional.empty(),
+                false,
+                "",
+                Optional.empty(),
+                null,
+                null,
+                ImmutableList.of(),
+                ImmutableSet.of(),
+                Optional.empty(),
+                state.isDone(),
+                Optional.empty());
     }
 
     @Override
@@ -166,6 +273,7 @@ public class MockManagedQueryExecution
     @Override
     public void fail(Throwable cause)
     {
+        memoryUsage = DataSize.ofBytes(0);
         state = FAILED;
         failureCause = cause;
         fireStateChange();
@@ -187,6 +295,45 @@ public class MockManagedQueryExecution
     {
         for (StateChangeListener<QueryState> listener : listeners) {
             listener.stateChanged(state);
+        }
+    }
+
+    public static class MockManagedQueryExecutionBuilder
+    {
+        private DataSize memoryUsage = DataSize.ofBytes(0);
+        private Duration cpuUsage = new Duration(0, MILLISECONDS);
+        private int priority = 1;
+        private String queryId = "query_id";
+
+        public MockManagedQueryExecutionBuilder() {}
+
+        public MockManagedQueryExecutionBuilder withInitialMemoryUsage(DataSize memoryUsage)
+        {
+            this.memoryUsage = memoryUsage;
+            return this;
+        }
+
+        public MockManagedQueryExecutionBuilder withInitialCpuUsageMillis(long cpuUsageMillis)
+        {
+            this.cpuUsage = new Duration(cpuUsageMillis, MILLISECONDS);
+            return this;
+        }
+
+        public MockManagedQueryExecutionBuilder withPriority(int priority)
+        {
+            this.priority = priority;
+            return this;
+        }
+
+        public MockManagedQueryExecutionBuilder withQueryId(String queryId)
+        {
+            this.queryId = queryId;
+            return this;
+        }
+
+        public MockManagedQueryExecution build()
+        {
+            return new MockManagedQueryExecution(queryId, priority, memoryUsage, cpuUsage);
         }
     }
 }

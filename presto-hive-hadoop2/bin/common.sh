@@ -1,6 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 function retry() {
+  local END
+  local EXIT_CODE
+
   END=$(($(date +%s) + 600))
 
   while (( $(date +%s) < $END )); do
@@ -29,10 +32,10 @@ function hadoop_master_ip() {
 
 function check_hadoop() {
   HADOOP_MASTER_CONTAINER=$(hadoop_master_container)
-  docker exec ${HADOOP_MASTER_CONTAINER} supervisorctl status hive-server2 | grep -iq running && \
-    docker exec ${HADOOP_MASTER_CONTAINER} supervisorctl status hive-metastore | grep -iq running && \
-    docker exec ${HADOOP_MASTER_CONTAINER} netstat -lpn | grep -iq 0.0.0.0:10000 &&
-    docker exec ${HADOOP_MASTER_CONTAINER} netstat -lpn | grep -iq 0.0.0.0:9083
+  docker exec ${HADOOP_MASTER_CONTAINER} supervisorctl status hive-server2 | grep -i running &> /dev/null && \
+    docker exec ${HADOOP_MASTER_CONTAINER} supervisorctl status hive-metastore | grep -i running &> /dev/null && \
+    docker exec ${HADOOP_MASTER_CONTAINER} netstat -lpn | grep -i 0.0.0.0:10000 &> /dev/null &&
+    docker exec ${HADOOP_MASTER_CONTAINER} netstat -lpn | grep -i 0.0.0.0:9083 &> /dev/null
 }
 
 function exec_in_hadoop_master_container() {
@@ -66,7 +69,7 @@ SCRIPT_DIR="${BASH_SOURCE%/*}"
 INTEGRATION_TESTS_ROOT="${SCRIPT_DIR}/.."
 PROJECT_ROOT="${INTEGRATION_TESTS_ROOT}/.."
 DOCKER_COMPOSE_LOCATION="${INTEGRATION_TESTS_ROOT}/conf/docker-compose.yml"
-source "${BASH_SOURCE%/*}/../../conf/docker-images-config.sh"
+source "${BASH_SOURCE%/*}/../../presto-product-tests/conf/product-tests-defaults.sh"
 
 # check docker and docker compose installation
 docker-compose version

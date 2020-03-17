@@ -15,22 +15,22 @@ package io.prestosql.plugin.kudu;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import io.airlift.tpch.TpchTable;
 import io.prestosql.Session;
 import io.prestosql.plugin.tpch.TpchPlugin;
+import io.prestosql.testing.DistributedQueryRunner;
 import io.prestosql.testing.QueryRunner;
-import io.prestosql.tests.DistributedQueryRunner;
+import io.prestosql.tpch.TpchTable;
 
 import java.util.Map;
 
 import static io.airlift.testing.Closeables.closeAllSuppress;
 import static io.prestosql.plugin.tpch.TpchMetadata.TINY_SCHEMA_NAME;
 import static io.prestosql.spi.type.TimeZoneKey.UTC_KEY;
+import static io.prestosql.testing.QueryAssertions.copyTpchTables;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
-import static io.prestosql.tests.QueryAssertions.copyTpchTables;
 import static java.util.Locale.ENGLISH;
 
-public class KuduQueryRunnerFactory
+public final class KuduQueryRunnerFactory
 {
     private KuduQueryRunnerFactory() {}
 

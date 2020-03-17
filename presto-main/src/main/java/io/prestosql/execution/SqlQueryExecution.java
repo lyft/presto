@@ -41,6 +41,7 @@ import io.prestosql.metadata.TableHandle;
 import io.prestosql.operator.ForScheduler;
 import io.prestosql.security.AccessControl;
 import io.prestosql.server.BasicQueryInfo;
+import io.prestosql.server.protocol.Slug;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.QueryId;
 import io.prestosql.spi.connector.ConnectorTableHandle;
@@ -65,11 +66,14 @@ import io.prestosql.sql.planner.SubPlan;
 import io.prestosql.sql.planner.TypeAnalyzer;
 import io.prestosql.sql.planner.optimizations.PlanOptimizer;
 import io.prestosql.sql.tree.Explain;
+import io.prestosql.sql.tree.Query;
+import io.prestosql.sql.tree.Statement;
 import org.joda.time.DateTime;
 
 import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,12 +84,12 @@ import java.util.function.Consumer;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Throwables.throwIfInstanceOf;
-import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.airlift.units.DataSize.succinctBytes;
 import static io.prestosql.execution.buffer.OutputBuffers.BROADCAST_PARTITION_ID;
 import static io.prestosql.execution.buffer.OutputBuffers.createInitialEmptyOutputBuffers;
 import static io.prestosql.execution.scheduler.SqlQueryScheduler.createSqlQueryScheduler;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.prestosql.sql.ParameterUtils.parameterExtractor;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -98,7 +102,7 @@ public class SqlQueryExecution
     private static final OutputBufferId OUTPUT_BUFFER_ID = new OutputBufferId(0);
 
     private final QueryStateMachine stateMachine;
-    private final String slug;
+    private final Slug slug;
     private final Metadata metadata;
     private final SqlParser sqlParser;
     private final SplitManager splitManager;
@@ -125,7 +129,7 @@ public class SqlQueryExecution
     private SqlQueryExecution(
             PreparedQuery preparedQuery,
             QueryStateMachine stateMachine,
-            String slug,
+            Slug slug,
             Metadata metadata,
             AccessControl accessControl,
             SqlParser sqlParser,
@@ -173,18 +177,7 @@ public class SqlQueryExecution
             this.stateMachine = requireNonNull(stateMachine, "stateMachine is null");
 
             // analyze query
-            requireNonNull(preparedQuery, "preparedQuery is null");
-            Analyzer analyzer = new Analyzer(
-                    stateMachine.getSession(),
-                    metadata,
-                    sqlParser,
-                    accessControl,
-                    Optional.of(queryExplainer),
-                    preparedQuery.getParameters(),
-                    warningCollector);
-            this.analysis = analyzer.analyze(preparedQuery.getStatement());
-
-            stateMachine.setUpdateType(analysis.getUpdateType());
+            this.analysis = analyze(preparedQuery, stateMachine, metadata, accessControl, sqlParser, queryExplainer, warningCollector);
 
             // when the query finishes cache the final query info, and clear the reference to the output stage
             AtomicReference<SqlQueryScheduler> queryScheduler = this.queryScheduler;
@@ -204,8 +197,38 @@ public class SqlQueryExecution
         }
     }
 
+    private Analysis analyze(
+            PreparedQuery preparedQuery,
+            QueryStateMachine stateMachine,
+            Metadata metadata,
+            AccessControl accessControl,
+            SqlParser sqlParser,
+            QueryExplainer queryExplainer,
+            WarningCollector warningCollector)
+    {
+        stateMachine.beginAnalysis();
+
+        requireNonNull(preparedQuery, "preparedQuery is null");
+        Analyzer analyzer = new Analyzer(
+                stateMachine.getSession(),
+                metadata,
+                sqlParser,
+                accessControl,
+                Optional.of(queryExplainer),
+                preparedQuery.getParameters(),
+                parameterExtractor(preparedQuery.getStatement(), preparedQuery.getParameters()),
+                warningCollector);
+        Analysis analysis = analyzer.analyze(preparedQuery.getStatement());
+
+        stateMachine.setUpdateType(analysis.getUpdateType());
+
+        stateMachine.endAnalysis();
+
+        return analysis;
+    }
+
     @Override
-    public String getSlug()
+    public Slug getSlug()
     {
         return slug;
     }
@@ -234,7 +257,7 @@ public class SqlQueryExecution
             return finalQueryInfo.get().getQueryStats().getUserMemoryReservation();
         }
         if (scheduler == null) {
-            return new DataSize(0, BYTE);
+            return DataSize.ofBytes(0);
         }
         return succinctBytes(scheduler.getUserMemoryReservation());
     }
@@ -251,7 +274,7 @@ public class SqlQueryExecution
             return finalQueryInfo.get().getQueryStats().getTotalMemoryReservation();
         }
         if (scheduler == null) {
-            return new DataSize(0, BYTE);
+            return DataSize.ofBytes(0);
         }
         return succinctBytes(scheduler.getTotalMemoryReservation());
     }
@@ -307,21 +330,14 @@ public class SqlQueryExecution
     {
         try (SetThreadName ignored = new SetThreadName("Query-%s", stateMachine.getQueryId())) {
             try {
-                // transition to planning
                 if (!stateMachine.transitionToPlanning()) {
                     // query already started or finished
                     return;
                 }
 
-                // analyze query
-                PlanRoot plan = analyzeQuery();
-
-                metadata.beginQuery(getSession(), plan.getTableHandles());
-
-                // plan distribution of query
+                PlanRoot plan = planQuery();
                 planDistribution(plan);
 
-                // transition to starting
                 if (!stateMachine.transitionToStarting()) {
                     // query already started or finished
                     return;
@@ -361,21 +377,18 @@ public class SqlQueryExecution
         stateMachine.addQueryInfoStateChangeListener(stateChangeListener);
     }
 
-    private PlanRoot analyzeQuery()
+    private PlanRoot planQuery()
     {
         try {
-            return doAnalyzeQuery();
+            return doPlanQuery();
         }
         catch (StackOverflowError e) {
             throw new PrestoException(NOT_SUPPORTED, "statement is too large (stack overflow during analysis)", e);
         }
     }
 
-    private PlanRoot doAnalyzeQuery()
+    private PlanRoot doPlanQuery()
     {
-        // time analysis phase
-        stateMachine.beginAnalysis();
-
         // plan query
         PlanNodeIdAllocator idAllocator = new PlanNodeIdAllocator();
         LogicalPlanner logicalPlanner = new LogicalPlanner(stateMachine.getSession(), planOptimizers, idAllocator, metadata, new TypeAnalyzer(sqlParser, metadata), statsCalculator, costCalculator, stateMachine.getWarningCollector());
@@ -392,9 +405,6 @@ public class SqlQueryExecution
 
         // fragment the plan
         SubPlan fragmentedPlan = planFragmenter.createSubPlans(stateMachine.getSession(), plan, false, stateMachine.getWarningCollector());
-
-        // record analysis time
-        stateMachine.endAnalysis();
 
         boolean explainAnalyze = analysis.getStatement() instanceof Explain && ((Explain) analysis.getStatement()).isAnalyze();
         return new PlanRoot(fragmentedPlan, !explainAnalyze, extractTableHandles(analysis));
@@ -418,13 +428,9 @@ public class SqlQueryExecution
 
     private void planDistribution(PlanRoot plan)
     {
-        // time distribution planning
-        stateMachine.beginDistributedPlanning();
-
         // plan the execution on the active nodes
         DistributedExecutionPlanner distributedPlanner = new DistributedExecutionPlanner(splitManager, metadata);
         StageExecutionPlan outputStageExecutionPlan = distributedPlanner.plan(plan.getRoot(), stateMachine.getSession());
-        stateMachine.endDistributedPlanning();
 
         // ensure split sources are closed
         stateMachine.addStateChangeListener(state -> {
@@ -595,6 +601,24 @@ public class SqlQueryExecution
         return queryInfo;
     }
 
+    @Override
+    public boolean shouldWaitForMinWorkers()
+    {
+        return shouldWaitForMinWorkers(analysis.getStatement());
+    }
+
+    private boolean shouldWaitForMinWorkers(Statement statement)
+    {
+        if (statement instanceof Query) {
+            // Allow set session statements and queries on internal system connectors to run without waiting
+            Collection<TableHandle> tables = analysis.getTables();
+            return !tables.stream()
+                    .map(TableHandle::getCatalogName)
+                    .allMatch(CatalogName::isInternalSystemConnector);
+        }
+        return true;
+    }
+
     private static class PlanRoot
     {
         private final SubPlan root;
@@ -649,7 +673,8 @@ public class SqlQueryExecution
         private final CostCalculator costCalculator;
 
         @Inject
-        SqlQueryExecutionFactory(QueryManagerConfig config,
+        SqlQueryExecutionFactory(
+                QueryManagerConfig config,
                 Metadata metadata,
                 AccessControl accessControl,
                 SqlParser sqlParser,
@@ -697,12 +722,12 @@ public class SqlQueryExecution
         public QueryExecution createQueryExecution(
                 PreparedQuery preparedQuery,
                 QueryStateMachine stateMachine,
-                String slug,
+                Slug slug,
                 WarningCollector warningCollector)
         {
             String executionPolicyName = SystemSessionProperties.getExecutionPolicy(stateMachine.getSession());
             ExecutionPolicy executionPolicy = executionPolicies.get(executionPolicyName);
-            checkArgument(executionPolicy != null, "No execution policy %s", executionPolicy);
+            checkArgument(executionPolicy != null, "No execution policy %s", executionPolicyName);
 
             return new SqlQueryExecution(
                     preparedQuery,

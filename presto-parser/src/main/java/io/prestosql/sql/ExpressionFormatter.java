@@ -34,6 +34,7 @@ import io.prestosql.sql.tree.Cube;
 import io.prestosql.sql.tree.CurrentPath;
 import io.prestosql.sql.tree.CurrentTime;
 import io.prestosql.sql.tree.CurrentUser;
+import io.prestosql.sql.tree.DateTimeDataType;
 import io.prestosql.sql.tree.DecimalLiteral;
 import io.prestosql.sql.tree.DereferenceExpression;
 import io.prestosql.sql.tree.DoubleLiteral;
@@ -44,6 +45,7 @@ import io.prestosql.sql.tree.FieldReference;
 import io.prestosql.sql.tree.Format;
 import io.prestosql.sql.tree.FrameBound;
 import io.prestosql.sql.tree.FunctionCall;
+import io.prestosql.sql.tree.GenericDataType;
 import io.prestosql.sql.tree.GenericLiteral;
 import io.prestosql.sql.tree.GroupingElement;
 import io.prestosql.sql.tree.GroupingOperation;
@@ -52,6 +54,7 @@ import io.prestosql.sql.tree.Identifier;
 import io.prestosql.sql.tree.IfExpression;
 import io.prestosql.sql.tree.InListExpression;
 import io.prestosql.sql.tree.InPredicate;
+import io.prestosql.sql.tree.IntervalDayTimeDataType;
 import io.prestosql.sql.tree.IntervalLiteral;
 import io.prestosql.sql.tree.IsNotNullPredicate;
 import io.prestosql.sql.tree.IsNullPredicate;
@@ -64,12 +67,13 @@ import io.prestosql.sql.tree.Node;
 import io.prestosql.sql.tree.NotExpression;
 import io.prestosql.sql.tree.NullIfExpression;
 import io.prestosql.sql.tree.NullLiteral;
+import io.prestosql.sql.tree.NumericParameter;
 import io.prestosql.sql.tree.OrderBy;
 import io.prestosql.sql.tree.Parameter;
-import io.prestosql.sql.tree.QualifiedName;
 import io.prestosql.sql.tree.QuantifiedComparisonExpression;
 import io.prestosql.sql.tree.Rollup;
 import io.prestosql.sql.tree.Row;
+import io.prestosql.sql.tree.RowDataType;
 import io.prestosql.sql.tree.SearchedCaseExpression;
 import io.prestosql.sql.tree.SimpleCaseExpression;
 import io.prestosql.sql.tree.SimpleGroupBy;
@@ -81,6 +85,7 @@ import io.prestosql.sql.tree.SymbolReference;
 import io.prestosql.sql.tree.TimeLiteral;
 import io.prestosql.sql.tree.TimestampLiteral;
 import io.prestosql.sql.tree.TryExpression;
+import io.prestosql.sql.tree.TypeParameter;
 import io.prestosql.sql.tree.WhenClause;
 import io.prestosql.sql.tree.Window;
 import io.prestosql.sql.tree.WindowFrame;
@@ -90,15 +95,15 @@ import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.PrimitiveIterator;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static io.prestosql.sql.SqlFormatter.formatName;
 import static io.prestosql.sql.SqlFormatter.formatSql;
 import static java.lang.String.format;
-import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 
 public final class ExpressionFormatter
@@ -113,14 +118,7 @@ public final class ExpressionFormatter
         return new Formatter().process(expression, null);
     }
 
-    public static String formatQualifiedName(QualifiedName name)
-    {
-        return name.getParts().stream()
-                .map(ExpressionFormatter::formatIdentifier)
-                .collect(joining("."));
-    }
-
-    public static String formatIdentifier(String s)
+    private static String formatIdentifier(String s)
     {
         return '"' + s.replace("\"", "\"\"") + '"';
     }
@@ -364,7 +362,7 @@ public final class ExpressionFormatter
                 arguments = "DISTINCT " + arguments;
             }
 
-            builder.append(formatQualifiedName(node.getName()))
+            builder.append(formatName(node.getName()))
                     .append('(').append(arguments);
 
             if (node.getOrderBy().isPresent()) {
@@ -372,6 +370,17 @@ public final class ExpressionFormatter
             }
 
             builder.append(')');
+
+            node.getNullTreatment().ifPresent(nullTreatment -> {
+                switch (nullTreatment) {
+                    case IGNORE:
+                        builder.append(" IGNORE NULLS");
+                        break;
+                    case RESPECT:
+                        builder.append(" RESPECT NULLS");
+                        break;
+                }
+            });
 
             if (node.getFilter().isPresent()) {
                 builder.append(" FILTER ").append(visitFilter(node.getFilter().get(), context));
@@ -403,9 +412,11 @@ public final class ExpressionFormatter
 
             builder.append("\"$INTERNAL$BIND\"(");
             for (Expression value : node.getValues()) {
-                builder.append(process(value, context) + ", ");
+                builder.append(process(value, context))
+                        .append(", ");
             }
-            builder.append(process(node.getFunction(), context) + ")");
+            builder.append(process(node.getFunction(), context))
+                    .append(")");
             return builder.toString();
         }
 
@@ -506,10 +517,8 @@ public final class ExpressionFormatter
                     .append(" LIKE ")
                     .append(process(node.getPattern(), context));
 
-            node.getEscape().ifPresent(escape -> {
-                builder.append(" ESCAPE ")
-                        .append(process(escape, context));
-            });
+            node.getEscape().ifPresent(escape -> builder.append(" ESCAPE ")
+                    .append(process(escape, context)));
 
             builder.append(')');
 
@@ -519,18 +528,31 @@ public final class ExpressionFormatter
         @Override
         protected String visitAllColumns(AllColumns node, Void context)
         {
-            if (node.getPrefix().isPresent()) {
-                return node.getPrefix().get() + ".*";
+            StringBuilder builder = new StringBuilder();
+            if (node.getTarget().isPresent()) {
+                builder.append(process(node.getTarget().get(), context));
+                builder.append(".*");
+            }
+            else {
+                builder.append("*");
             }
 
-            return "*";
+            if (!node.getAliases().isEmpty()) {
+                builder.append(" AS (");
+                Joiner.on(", ").appendTo(builder, node.getAliases().stream()
+                        .map(alias -> process(alias, context))
+                        .collect(toList()));
+                builder.append(")");
+            }
+
+            return builder.toString();
         }
 
         @Override
         public String visitCast(Cast node, Void context)
         {
             return (node.isSafe() ? "TRY_CAST" : "CAST") +
-                    "(" + process(node.getExpression(), context) + " AS " + node.getType() + ")";
+                    "(" + process(node.getExpression(), context) + " AS " + process(node.getType(), context) + ")";
         }
 
         @Override
@@ -672,9 +694,94 @@ public final class ExpressionFormatter
                     .toString();
         }
 
-        public String visitGroupingOperation(GroupingOperation node, Void context)
+        @Override
+        protected String visitGroupingOperation(GroupingOperation node, Void context)
         {
             return "GROUPING (" + joinExpressions(node.getGroupingColumns()) + ")";
+        }
+
+        @Override
+        protected String visitRowDataType(RowDataType node, Void context)
+        {
+            return node.getFields().stream()
+                    .map(this::process)
+                    .collect(Collectors.joining(", ", "ROW(", ")"));
+        }
+
+        @Override
+        protected String visitRowField(RowDataType.Field node, Void context)
+        {
+            StringBuilder result = new StringBuilder();
+
+            if (node.getName().isPresent()) {
+                result.append(process(node.getName().get(), context));
+                result.append(" ");
+            }
+
+            result.append(process(node.getType(), context));
+
+            return result.toString();
+        }
+
+        @Override
+        protected String visitGenericDataType(GenericDataType node, Void context)
+        {
+            StringBuilder result = new StringBuilder();
+            result.append(node.getName());
+
+            if (!node.getArguments().isEmpty()) {
+                result.append(node.getArguments().stream()
+                        .map(this::process)
+                        .collect(Collectors.joining(", ", "(", ")")));
+            }
+
+            return result.toString();
+        }
+
+        @Override
+        protected String visitTypeParameter(TypeParameter node, Void context)
+        {
+            return process(node.getValue(), context);
+        }
+
+        @Override
+        protected String visitNumericTypeParameter(NumericParameter node, Void context)
+        {
+            return node.getValue();
+        }
+
+        @Override
+        protected String visitIntervalDataType(IntervalDayTimeDataType node, Void context)
+        {
+            StringBuilder builder = new StringBuilder();
+
+            builder.append("INTERVAL ");
+            builder.append(node.getFrom());
+            if (node.getFrom() != node.getTo()) {
+                builder.append(" TO ")
+                        .append(node.getTo());
+            }
+
+            return builder.toString();
+        }
+
+        @Override
+        protected String visitDateTimeType(DateTimeDataType node, Void context)
+        {
+            StringBuilder builder = new StringBuilder();
+
+            builder.append(node.getType().toString().toLowerCase(Locale.ENGLISH)); // TODO: normalize to upper case according to standard SQL semantics
+            if (node.getPrecision().isPresent()) {
+                builder.append("(")
+                        .append(node.getPrecision().get())
+                        .append(")");
+            }
+
+            if (node.isWithTimeZone()) {
+                builder.append(" with time zone"); // TODO: normalize to upper case according to standard SQL semantics
+            }
+
+            return builder.toString();
         }
 
         private String formatBinaryExpression(String operator, Expression left, Expression right)
@@ -728,7 +835,7 @@ public final class ExpressionFormatter
         return "ORDER BY " + formatSortItems(orderBy.getSortItems());
     }
 
-    static String formatSortItems(List<SortItem> sortItems)
+    private static String formatSortItems(List<SortItem> sortItems)
     {
         return Joiner.on(", ").join(sortItems.stream()
                 .map(sortItemFormatterFunction())
@@ -736,11 +843,6 @@ public final class ExpressionFormatter
     }
 
     static String formatGroupBy(List<GroupingElement> groupingElements)
-    {
-        return formatGroupBy(groupingElements, Optional.empty());
-    }
-
-    static String formatGroupBy(List<GroupingElement> groupingElements, Optional<List<Expression>> parameters)
     {
         ImmutableList.Builder<String> resultStrings = ImmutableList.builder();
 
@@ -758,7 +860,7 @@ public final class ExpressionFormatter
             else if (groupingElement instanceof GroupingSets) {
                 result = format("GROUPING SETS (%s)", Joiner.on(", ").join(
                         ((GroupingSets) groupingElement).getSets().stream()
-                                .map(e -> formatGroupingSet(e))
+                                .map(ExpressionFormatter::formatGroupingSet)
                                 .iterator()));
             }
             else if (groupingElement instanceof Cube) {
@@ -774,10 +876,7 @@ public final class ExpressionFormatter
 
     private static boolean isAsciiPrintable(int codePoint)
     {
-        if (codePoint >= 0x7F || codePoint < 0x20) {
-            return false;
-        }
-        return true;
+        return codePoint >= 0x20 && codePoint < 0x7F;
     }
 
     private static String formatGroupingSet(List<Expression> groupingSet)
@@ -787,7 +886,7 @@ public final class ExpressionFormatter
                 .iterator()));
     }
 
-    public static Function<SortItem, String> sortItemFormatterFunction()
+    private static Function<SortItem, String> sortItemFormatterFunction()
     {
         return input -> {
             StringBuilder builder = new StringBuilder();

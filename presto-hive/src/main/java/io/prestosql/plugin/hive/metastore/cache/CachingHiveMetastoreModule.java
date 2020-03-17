@@ -16,17 +16,19 @@ package io.prestosql.plugin.hive.metastore.cache;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provides;
-import com.google.inject.Scopes;
-import io.airlift.concurrent.BoundedExecutor;
 import io.prestosql.plugin.hive.HiveCatalogName;
 import io.prestosql.plugin.hive.metastore.HiveMetastore;
+import io.prestosql.plugin.hive.metastore.HiveMetastoreDecorator;
 
 import javax.inject.Singleton;
 
+import java.util.Optional;
 import java.util.concurrent.Executor;
 
+import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.configuration.ConfigBinder.configBinder;
+import static io.prestosql.plugin.hive.metastore.cache.CachingHiveMetastore.cachingHiveMetastore;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static org.weakref.jmx.guice.ExportBinder.newExporter;
 
@@ -37,9 +39,22 @@ public class CachingHiveMetastoreModule
     public void configure(Binder binder)
     {
         configBinder(binder).bindConfig(CachingHiveMetastoreConfig.class);
-        binder.bind(HiveMetastore.class).to(CachingHiveMetastore.class).in(Scopes.SINGLETON);
+        newOptionalBinder(binder, HiveMetastoreDecorator.class);
         newExporter(binder).export(HiveMetastore.class)
                 .as(generator -> generator.generatedNameOf(CachingHiveMetastore.class));
+    }
+
+    @Provides
+    @Singleton
+    public HiveMetastore createCachingHiveMetastore(
+            @ForCachingHiveMetastore HiveMetastore delegate,
+            @ForCachingHiveMetastore Executor executor,
+            CachingHiveMetastoreConfig config,
+            Optional<HiveMetastoreDecorator> hiveMetastoreDecorator)
+    {
+        HiveMetastore decoratedDelegate = hiveMetastoreDecorator.map(decorator -> decorator.decorate(delegate))
+                .orElse(delegate);
+        return cachingHiveMetastore(decoratedDelegate, executor, config);
     }
 
     @Provides
@@ -47,7 +62,7 @@ public class CachingHiveMetastoreModule
     @ForCachingHiveMetastore
     public Executor createCachingHiveMetastoreExecutor(HiveCatalogName catalogName, CachingHiveMetastoreConfig hiveConfig)
     {
-        return new BoundedExecutor(
+        return new ReentrantBoundedExecutor(
                 newCachedThreadPool(daemonThreadsNamed("hive-metastore-" + catalogName + "-%s")),
                 hiveConfig.getMaxMetastoreRefreshThreads());
     }

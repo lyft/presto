@@ -13,6 +13,8 @@
  */
 package io.prestosql.connector;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.prestosql.plugin.tpch.TpchColumnHandle;
@@ -25,28 +27,28 @@ import io.prestosql.spi.connector.Connector;
 import io.prestosql.spi.connector.ConnectorContext;
 import io.prestosql.spi.connector.ConnectorFactory;
 import io.prestosql.spi.connector.ConnectorHandleResolver;
+import io.prestosql.spi.connector.ConnectorInsertTableHandle;
 import io.prestosql.spi.connector.ConnectorMetadata;
+import io.prestosql.spi.connector.ConnectorNewTableLayout;
+import io.prestosql.spi.connector.ConnectorOutputTableHandle;
 import io.prestosql.spi.connector.ConnectorRecordSetProvider;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorSplitManager;
 import io.prestosql.spi.connector.ConnectorTableHandle;
-import io.prestosql.spi.connector.ConnectorTableLayout;
-import io.prestosql.spi.connector.ConnectorTableLayoutHandle;
-import io.prestosql.spi.connector.ConnectorTableLayoutResult;
 import io.prestosql.spi.connector.ConnectorTableMetadata;
+import io.prestosql.spi.connector.ConnectorTableProperties;
 import io.prestosql.spi.connector.ConnectorTransactionHandle;
 import io.prestosql.spi.connector.ConnectorViewDefinition;
-import io.prestosql.spi.connector.Constraint;
+import io.prestosql.spi.connector.ProjectionApplicationResult;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.connector.SchemaTablePrefix;
-import io.prestosql.spi.predicate.TupleDomain;
+import io.prestosql.spi.expression.ConnectorExpression;
 import io.prestosql.spi.transaction.IsolationLevel;
-import io.prestosql.testing.TestingHandle;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.IntStream;
@@ -62,18 +64,30 @@ public class MockConnectorFactory
     private final Function<ConnectorSession, List<String>> listSchemaNames;
     private final BiFunction<ConnectorSession, String, List<SchemaTableName>> listTables;
     private final BiFunction<ConnectorSession, SchemaTablePrefix, Map<SchemaTableName, ConnectorViewDefinition>> getViews;
-    private final BiFunction<ConnectorSession, ConnectorTableHandle, Map<String, TpchColumnHandle>> getColumnHandles;
+    private final BiFunction<ConnectorSession, SchemaTableName, ConnectorTableHandle> getTableHandle;
+    private final Function<SchemaTableName, List<ColumnMetadata>> getColumns;
+    private final ApplyProjection applyProjection;
+    private final BiFunction<ConnectorSession, SchemaTableName, Optional<ConnectorNewTableLayout>> getInsertLayout;
+    private final BiFunction<ConnectorSession, ConnectorTableMetadata, Optional<ConnectorNewTableLayout>> getNewTableLayout;
 
     private MockConnectorFactory(
             Function<ConnectorSession, List<String>> listSchemaNames,
             BiFunction<ConnectorSession, String, List<SchemaTableName>> listTables,
             BiFunction<ConnectorSession, SchemaTablePrefix, Map<SchemaTableName, ConnectorViewDefinition>> getViews,
-            BiFunction<ConnectorSession, ConnectorTableHandle, Map<String, TpchColumnHandle>> getColumnHandles)
+            BiFunction<ConnectorSession, SchemaTableName, ConnectorTableHandle> getTableHandle,
+            Function<SchemaTableName, List<ColumnMetadata>> getColumns,
+            ApplyProjection applyProjection,
+            BiFunction<ConnectorSession, SchemaTableName, Optional<ConnectorNewTableLayout>> getInsertLayout,
+            BiFunction<ConnectorSession, ConnectorTableMetadata, Optional<ConnectorNewTableLayout>> getNewTableLayout)
     {
         this.listSchemaNames = requireNonNull(listSchemaNames, "listSchemaNames is null");
         this.listTables = requireNonNull(listTables, "listTables is null");
         this.getViews = requireNonNull(getViews, "getViews is null");
-        this.getColumnHandles = requireNonNull(getColumnHandles, "getColumnHandles is null");
+        this.getTableHandle = requireNonNull(getTableHandle, "getTableHandle is null");
+        this.getColumns = getColumns;
+        this.applyProjection = applyProjection;
+        this.getInsertLayout = requireNonNull(getInsertLayout, "getInsertLayout is null");
+        this.getNewTableLayout = requireNonNull(getNewTableLayout, "getNewTableLayout is null");
     }
 
     @Override
@@ -91,7 +105,7 @@ public class MockConnectorFactory
     @Override
     public Connector create(String catalogName, Map<String, String> config, ConnectorContext context)
     {
-        return new MockConnector(context, listSchemaNames, listTables, getViews, getColumnHandles);
+        return new MockConnector(context, listSchemaNames, listTables, getViews, getTableHandle, getColumns, applyProjection, getInsertLayout, getNewTableLayout);
     }
 
     public static Builder builder()
@@ -99,27 +113,45 @@ public class MockConnectorFactory
         return new Builder();
     }
 
-    private static class MockConnector
+    @FunctionalInterface
+    public interface ApplyProjection
+    {
+        Optional<ProjectionApplicationResult<ConnectorTableHandle>> apply(ConnectorSession session, ConnectorTableHandle handle, List<ConnectorExpression> projections, Map<String, ColumnHandle> assignments);
+    }
+
+    public static class MockConnector
             implements Connector
     {
         private final ConnectorContext context;
         private final Function<ConnectorSession, List<String>> listSchemaNames;
         private final BiFunction<ConnectorSession, String, List<SchemaTableName>> listTables;
         private final BiFunction<ConnectorSession, SchemaTablePrefix, Map<SchemaTableName, ConnectorViewDefinition>> getViews;
-        private final BiFunction<ConnectorSession, ConnectorTableHandle, Map<String, TpchColumnHandle>> getColumnHandles;
+        private final BiFunction<ConnectorSession, SchemaTableName, ConnectorTableHandle> getTableHandle;
+        private final Function<SchemaTableName, List<ColumnMetadata>> getColumns;
+        private final ApplyProjection applyProjection;
+        private final BiFunction<ConnectorSession, SchemaTableName, Optional<ConnectorNewTableLayout>> getInsertLayout;
+        private final BiFunction<ConnectorSession, ConnectorTableMetadata, Optional<ConnectorNewTableLayout>> getNewTableLayout;
 
-        public MockConnector(
+        private MockConnector(
                 ConnectorContext context,
                 Function<ConnectorSession, List<String>> listSchemaNames,
                 BiFunction<ConnectorSession, String, List<SchemaTableName>> listTables,
                 BiFunction<ConnectorSession, SchemaTablePrefix, Map<SchemaTableName, ConnectorViewDefinition>> getViews,
-                BiFunction<ConnectorSession, ConnectorTableHandle, Map<String, TpchColumnHandle>> getColumnHandles)
+                BiFunction<ConnectorSession, SchemaTableName, ConnectorTableHandle> getTableHandle,
+                Function<SchemaTableName, List<ColumnMetadata>> getColumns,
+                ApplyProjection applyProjection,
+                BiFunction<ConnectorSession, SchemaTableName, Optional<ConnectorNewTableLayout>> getInsertLayout,
+                BiFunction<ConnectorSession, ConnectorTableMetadata, Optional<ConnectorNewTableLayout>> getNewTableLayout)
         {
             this.context = requireNonNull(context, "context is null");
             this.listSchemaNames = requireNonNull(listSchemaNames, "listSchemaNames is null");
             this.listTables = requireNonNull(listTables, "listTables is null");
             this.getViews = requireNonNull(getViews, "getViews is null");
-            this.getColumnHandles = requireNonNull(getColumnHandles, "getColumnHandles is null");
+            this.getTableHandle = requireNonNull(getTableHandle, "getTableHandle is null");
+            this.getColumns = requireNonNull(getColumns, "getColumns is null");
+            this.applyProjection = requireNonNull(applyProjection, "applyProjection is null");
+            this.getInsertLayout = requireNonNull(getInsertLayout, "getInsertLayout is null");
+            this.getNewTableLayout = requireNonNull(getNewTableLayout, "getNewTableLayout is null");
         }
 
         @Override
@@ -150,6 +182,12 @@ public class MockConnectorFactory
                 implements ConnectorMetadata
         {
             @Override
+            public Optional<ProjectionApplicationResult<ConnectorTableHandle>> applyProjection(ConnectorSession session, ConnectorTableHandle handle, List<ConnectorExpression> projections, Map<String, ColumnHandle> assignments)
+            {
+                return applyProjection.apply(session, handle, projections, assignments);
+            }
+
+            @Override
             public List<String> listSchemaNames(ConnectorSession session)
             {
                 return listSchemaNames.apply(session);
@@ -158,25 +196,35 @@ public class MockConnectorFactory
             @Override
             public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName)
             {
-                return new ConnectorTableHandle() {};
+                return getTableHandle.apply(session, tableName);
             }
 
             @Override
-            public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table)
+            public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle tableHandle)
             {
-                return null;
+                MockConnectorTableHandle table = (MockConnectorTableHandle) tableHandle;
+                return new ConnectorTableMetadata(table.getTableName(), getColumns.apply(table.getTableName()));
             }
 
             @Override
             public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName)
             {
-                return listTables.apply(session, schemaName.orElse(null));
+                if (schemaName.isPresent()) {
+                    return listTables.apply(session, schemaName.get());
+                }
+                ImmutableList.Builder<SchemaTableName> tableNames = ImmutableList.builder();
+                for (String schema : listSchemaNames(session)) {
+                    tableNames.addAll(listTables.apply(session, schema));
+                }
+                return tableNames.build();
             }
 
             @Override
             public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle)
             {
-                return ImmutableMap.copyOf(getColumnHandles.apply(session, tableHandle));
+                MockConnectorTableHandle table = (MockConnectorTableHandle) tableHandle;
+                return getColumns.apply(table.getTableName()).stream()
+                        .collect(toImmutableMap(ColumnMetadata::getName, column -> new TpchColumnHandle(column.getName(), column.getType())));
             }
 
             @Override
@@ -190,22 +238,8 @@ public class MockConnectorFactory
             public Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
             {
                 return listTables(session, prefix.getSchema()).stream()
-                        .collect(toImmutableMap(table -> table, table -> IntStream.range(0, 100)
-                                .boxed()
-                                .map(i -> new ColumnMetadata("column_" + i, createUnboundedVarcharType()))
-                                .collect(toImmutableList())));
-            }
-
-            @Override
-            public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session, ConnectorTableHandle table, Constraint constraint, Optional<Set<ColumnHandle>> desiredColumns)
-            {
-                return ImmutableList.of(new ConnectorTableLayoutResult(new ConnectorTableLayout(TestingHandle.INSTANCE), TupleDomain.all()));
-            }
-
-            @Override
-            public ConnectorTableLayout getTableLayout(ConnectorSession session, ConnectorTableLayoutHandle handle)
-            {
-                throw new UnsupportedOperationException();
+                        .filter(prefix::matches)
+                        .collect(toImmutableMap(table -> table, getColumns));
             }
 
             @Override
@@ -217,17 +251,105 @@ public class MockConnectorFactory
             @Override
             public Optional<ConnectorViewDefinition> getView(ConnectorSession session, SchemaTableName viewName)
             {
-                return Optional.of(getViews.apply(session, viewName.toSchemaTablePrefix()).get(viewName));
+                return Optional.ofNullable(getViews.apply(session, viewName.toSchemaTablePrefix()).get(viewName));
+            }
+
+            @Override
+            public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle)
+            {
+                return new MockConnectorInsertTableHandle();
+            }
+
+            @Override
+            public Optional<ConnectorNewTableLayout> getInsertLayout(ConnectorSession session, ConnectorTableHandle tableHandle)
+            {
+                MockConnectorTableHandle table = (MockConnectorTableHandle) tableHandle;
+                return getInsertLayout.apply(session, table.getTableName());
+            }
+
+            @Override
+            public ConnectorOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorNewTableLayout> layout)
+            {
+                return new MockConnectorOutputTableHandle();
+            }
+
+            @Override
+            public Optional<ConnectorNewTableLayout> getNewTableLayout(ConnectorSession session, ConnectorTableMetadata tableMetadata)
+            {
+                return getNewTableLayout.apply(session, tableMetadata);
+            }
+
+            @Override
+            public boolean usesLegacyTableLayouts()
+            {
+                return false;
+            }
+
+            @Override
+            public ConnectorTableProperties getTableProperties(ConnectorSession session, ConnectorTableHandle table)
+            {
+                return new ConnectorTableProperties();
             }
         }
     }
 
+    public static class MockConnectorTableHandle
+            implements ConnectorTableHandle
+    {
+        private final SchemaTableName tableName;
+
+        @JsonCreator
+        public MockConnectorTableHandle(@JsonProperty SchemaTableName tableName)
+        {
+            this.tableName = requireNonNull(tableName, "tableName is null");
+        }
+
+        @JsonProperty
+        public SchemaTableName getTableName()
+        {
+            return tableName;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            MockConnectorTableHandle other = (MockConnectorTableHandle) o;
+            return Objects.equals(tableName, other.tableName);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(tableName);
+        }
+    }
+
+    private static class MockConnectorInsertTableHandle
+            implements ConnectorInsertTableHandle
+    {
+    }
+
+    private static class MockConnectorOutputTableHandle
+            implements ConnectorOutputTableHandle
+    {
+    }
+
     public static final class Builder
     {
-        private Function<ConnectorSession, List<String>> listSchemaNames = (session) -> ImmutableList.of();
-        private BiFunction<ConnectorSession, String, List<SchemaTableName>> listTables = (session, schemaName) -> ImmutableList.of();
-        private BiFunction<ConnectorSession, SchemaTablePrefix, Map<SchemaTableName, ConnectorViewDefinition>> getViews = (session, schemaTablePrefix) -> ImmutableMap.of();
-        private BiFunction<ConnectorSession, ConnectorTableHandle, Map<String, TpchColumnHandle>> getColumnHandles = (session, tableHandle) -> notSupported();
+        private Function<ConnectorSession, List<String>> listSchemaNames = defaultListSchemaNames();
+        private BiFunction<ConnectorSession, String, List<SchemaTableName>> listTables = defaultListTables();
+        private BiFunction<ConnectorSession, SchemaTablePrefix, Map<SchemaTableName, ConnectorViewDefinition>> getViews = defaultGetViews();
+        private BiFunction<ConnectorSession, SchemaTableName, ConnectorTableHandle> getTableHandle = defaultGetTableHandle();
+        private Function<SchemaTableName, List<ColumnMetadata>> getColumns = defaultGetColumns();
+        private ApplyProjection applyProjection = (session, handle, projections, assignments) -> Optional.empty();
+        private BiFunction<ConnectorSession, SchemaTableName, Optional<ConnectorNewTableLayout>> getInsertLayout = defaultGetInsertLayout();
+        private BiFunction<ConnectorSession, ConnectorTableMetadata, Optional<ConnectorNewTableLayout>> getNewTableLayout = defaultGetNewTableLayout();
 
         public Builder withListSchemaNames(Function<ConnectorSession, List<String>> listSchemaNames)
         {
@@ -247,20 +369,77 @@ public class MockConnectorFactory
             return this;
         }
 
-        public Builder withGetColumnHandles(BiFunction<ConnectorSession, ConnectorTableHandle, Map<String, TpchColumnHandle>> getColumnHandles)
+        public Builder withGetTableHandle(BiFunction<ConnectorSession, SchemaTableName, ConnectorTableHandle> getTableHandle)
         {
-            this.getColumnHandles = requireNonNull(getColumnHandles, "getColumnHandles is null");
+            this.getTableHandle = requireNonNull(getTableHandle, "getTableHandle is null");
+            return this;
+        }
+
+        public Builder withGetColumns(Function<SchemaTableName, List<ColumnMetadata>> getColumns)
+        {
+            this.getColumns = requireNonNull(getColumns, "getColumns is null");
+            return this;
+        }
+
+        public Builder withApplyProjection(ApplyProjection applyProjection)
+        {
+            this.applyProjection = applyProjection;
+            return this;
+        }
+
+        public Builder withGetInsertLayout(BiFunction<ConnectorSession, SchemaTableName, Optional<ConnectorNewTableLayout>> getInsertLayout)
+        {
+            this.getInsertLayout = requireNonNull(getInsertLayout, "getInsertLayout is null");
+            return this;
+        }
+
+        public Builder withGetNewTableLayout(BiFunction<ConnectorSession, ConnectorTableMetadata, Optional<ConnectorNewTableLayout>> getNewTableLayout)
+        {
+            this.getNewTableLayout = requireNonNull(getNewTableLayout, "getNewTableLayout is null");
             return this;
         }
 
         public MockConnectorFactory build()
         {
-            return new MockConnectorFactory(listSchemaNames, listTables, getViews, getColumnHandles);
+            return new MockConnectorFactory(listSchemaNames, listTables, getViews, getTableHandle, getColumns, applyProjection, getInsertLayout, getNewTableLayout);
         }
 
-        private static <T> T notSupported()
+        public static Function<ConnectorSession, List<String>> defaultListSchemaNames()
         {
-            throw new UnsupportedOperationException();
+            return (session) -> ImmutableList.of();
+        }
+
+        public static BiFunction<ConnectorSession, String, List<SchemaTableName>> defaultListTables()
+        {
+            return (session, schemaName) -> ImmutableList.of();
+        }
+
+        public static BiFunction<ConnectorSession, SchemaTablePrefix, Map<SchemaTableName, ConnectorViewDefinition>> defaultGetViews()
+        {
+            return (session, schemaTablePrefix) -> ImmutableMap.of();
+        }
+
+        public static BiFunction<ConnectorSession, SchemaTableName, ConnectorTableHandle> defaultGetTableHandle()
+        {
+            return (session, schemaTableName) -> new MockConnectorTableHandle(schemaTableName);
+        }
+
+        public static BiFunction<ConnectorSession, SchemaTableName, Optional<ConnectorNewTableLayout>> defaultGetInsertLayout()
+        {
+            return (session, tableHandle) -> Optional.empty();
+        }
+
+        public static BiFunction<ConnectorSession, ConnectorTableMetadata, Optional<ConnectorNewTableLayout>> defaultGetNewTableLayout()
+        {
+            return (session, tableHandle) -> Optional.empty();
+        }
+
+        public static Function<SchemaTableName, List<ColumnMetadata>> defaultGetColumns()
+        {
+            return table -> IntStream.range(0, 100)
+                    .boxed()
+                    .map(i -> new ColumnMetadata("column_" + i, createUnboundedVarcharType()))
+                    .collect(toImmutableList());
         }
     }
 }

@@ -28,6 +28,7 @@ import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.Connector;
 import io.prestosql.spi.connector.ConnectorMetadata;
 import io.prestosql.spi.connector.ConnectorSession;
+import io.prestosql.spi.connector.ConnectorTableHandle;
 import io.prestosql.spi.connector.ConnectorViewDefinition;
 import io.prestosql.spi.connector.ConnectorViewDefinition.ViewColumn;
 import io.prestosql.spi.connector.Constraint;
@@ -42,6 +43,7 @@ import io.prestosql.transaction.TransactionId;
 import io.prestosql.transaction.TransactionManager;
 import org.testng.annotations.Test;
 
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -54,6 +56,8 @@ import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static io.prestosql.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static java.util.Arrays.stream;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class TestInformationSchemaMetadata
 {
@@ -73,7 +77,8 @@ public class TestInformationSchemaMetadata
                             "select 1",
                             Optional.of("test_catalog"),
                             Optional.of("test_schema"),
-                            ImmutableList.of(new ViewColumn("test", BIGINT.getTypeSignature())),
+                            ImmutableList.of(new ViewColumn("test", BIGINT.getTypeId())),
+                            Optional.of("comment"),
                             Optional.empty(),
                             true);
                     SchemaTableName viewName = new SchemaTableName("test_schema", "test_view");
@@ -123,25 +128,29 @@ public class TestInformationSchemaMetadata
     public void testInformationSchemaPredicatePushdownWithConstraintPredicate()
     {
         TransactionId transactionId = transactionManager.beginTransaction(false);
-        Constraint constraint = new Constraint(
-                TupleDomain.all(),
-                // test_schema has a table named "another_table" and we filter that out in this predicate
-                bindings -> {
-                    NullableValue catalog = bindings.get(new InformationSchemaColumnHandle("table_catalog"));
-                    NullableValue schema = bindings.get(new InformationSchemaColumnHandle("table_schema"));
-                    NullableValue table = bindings.get(new InformationSchemaColumnHandle("table_name"));
-                    boolean isValid = true;
-                    if (catalog != null) {
-                        isValid = ((Slice) catalog.getValue()).toStringUtf8().equals("test_catalog");
-                    }
-                    if (schema != null) {
-                        isValid &= ((Slice) schema.getValue()).toStringUtf8().equals("test_schema");
-                    }
-                    if (table != null) {
-                        isValid &= ((Slice) table.getValue()).toStringUtf8().equals("test_view");
-                    }
-                    return isValid;
-                });
+        Constraint constraint = new Constraint(TupleDomain.all(), TestInformationSchemaMetadata::testConstraint);
+
+        ConnectorSession session = createNewSession(transactionId);
+        ConnectorMetadata metadata = new InformationSchemaMetadata("test_catalog", this.metadata);
+        InformationSchemaTableHandle tableHandle = (InformationSchemaTableHandle)
+                metadata.getTableHandle(session, new SchemaTableName("information_schema", "columns"));
+        tableHandle = metadata.applyFilter(session, tableHandle, constraint)
+                .map(ConstraintApplicationResult::getHandle)
+                .map(InformationSchemaTableHandle.class::cast)
+                .orElseThrow(AssertionError::new);
+
+        assertEquals(tableHandle.getPrefixes(), ImmutableSet.of(new QualifiedTablePrefix("test_catalog", "test_schema", "test_view")));
+    }
+
+    @Test
+    public void testInformationSchemaPredicatePushdownWithoutSchemaPredicate()
+    {
+        TransactionId transactionId = transactionManager.beginTransaction(false);
+
+        // predicate without schema predicates should cause schemas to be enumerated when table predicates are present
+        ImmutableMap.Builder<ColumnHandle, Domain> domains = new ImmutableMap.Builder<>();
+        domains.put(new InformationSchemaColumnHandle("table_name"), Domain.singleValue(VARCHAR, Slices.utf8Slice("test_view")));
+        Constraint constraint = new Constraint(TupleDomain.withColumnDomains(domains.build()));
 
         ConnectorSession session = createNewSession(transactionId);
         ConnectorMetadata metadata = new InformationSchemaMetadata("test_catalog", this.metadata);
@@ -151,8 +160,111 @@ public class TestInformationSchemaMetadata
                 .map(ConstraintApplicationResult::getHandle)
                 .map(InformationSchemaTableHandle.class::cast)
                 .orElseThrow(AssertionError::new);
-
         assertEquals(tableHandle.getPrefixes(), ImmutableSet.of(new QualifiedTablePrefix("test_catalog", "test_schema", "test_view")));
+    }
+
+    @Test
+    public void testInformationSchemaPredicatePushdownWithoutTablePredicate()
+    {
+        TransactionId transactionId = transactionManager.beginTransaction(false);
+
+        // predicate without table name predicates should not cause table level prefixes to be evaluated
+        ImmutableMap.Builder<ColumnHandle, Domain> domains = new ImmutableMap.Builder<>();
+        domains.put(new InformationSchemaColumnHandle("table_schema"), Domain.singleValue(VARCHAR, Slices.utf8Slice("test_schema")));
+        Constraint constraint = new Constraint(TupleDomain.withColumnDomains(domains.build()));
+
+        ConnectorSession session = createNewSession(transactionId);
+        ConnectorMetadata metadata = new InformationSchemaMetadata("test_catalog", this.metadata);
+        InformationSchemaTableHandle tableHandle = (InformationSchemaTableHandle)
+                metadata.getTableHandle(session, new SchemaTableName("information_schema", "views"));
+        tableHandle = metadata.applyFilter(session, tableHandle, constraint)
+                .map(ConstraintApplicationResult::getHandle)
+                .map(InformationSchemaTableHandle.class::cast)
+                .orElseThrow(AssertionError::new);
+        assertEquals(tableHandle.getPrefixes(), ImmutableSet.of(new QualifiedTablePrefix("test_catalog", "test_schema")));
+    }
+
+    @Test
+    public void testInformationSchemaPredicatePushdownWithConstraintPredicateOnViewsTable()
+    {
+        TransactionId transactionId = transactionManager.beginTransaction(false);
+
+        // predicate on non columns enumerating table should not cause tables to be enumerated
+        Constraint constraint = new Constraint(TupleDomain.all(), TestInformationSchemaMetadata::testConstraint);
+        ConnectorSession session = createNewSession(transactionId);
+        ConnectorMetadata metadata = new InformationSchemaMetadata("test_catalog", this.metadata);
+        InformationSchemaTableHandle tableHandle = (InformationSchemaTableHandle)
+                metadata.getTableHandle(session, new SchemaTableName("information_schema", "views"));
+        tableHandle = metadata.applyFilter(session, tableHandle, constraint)
+                .map(ConstraintApplicationResult::getHandle)
+                .map(InformationSchemaTableHandle.class::cast)
+                .orElseThrow(AssertionError::new);
+
+        assertEquals(tableHandle.getPrefixes(), ImmutableSet.of(new QualifiedTablePrefix("test_catalog", "test_schema")));
+    }
+
+    @Test
+    public void testInformationSchemaPredicatePushdownOnCatalogWiseTables()
+    {
+        TransactionId transactionId = transactionManager.beginTransaction(false);
+
+        // Predicate pushdown shouldn't work for catalog-wise tables because the table prefixes for them are always
+        // ImmutableSet.of(new QualifiedTablePrefix(catalogName));
+        Constraint constraint = new Constraint(TupleDomain.all());
+        ConnectorSession session = createNewSession(transactionId);
+        ConnectorMetadata metadata = new InformationSchemaMetadata("test_catalog", this.metadata);
+        InformationSchemaTableHandle tableHandle = (InformationSchemaTableHandle)
+                metadata.getTableHandle(session, new SchemaTableName("information_schema", "schemata"));
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(session, tableHandle, constraint);
+        assertFalse(result.isPresent());
+    }
+
+    @Test
+    public void testInformationSchemaPredicatePushdownForEmptyNames()
+    {
+        assertApplyFilterReturnsEmptyPrefixes(
+                new SchemaTableName("information_schema", "tables"),
+                ImmutableMap.of(
+                        new InformationSchemaColumnHandle("table_name"), new NullableValue(VARCHAR, Slices.utf8Slice(""))));
+
+        assertApplyFilterReturnsEmptyPrefixes(
+                new SchemaTableName("information_schema", "tables"),
+                ImmutableMap.of(
+                        new InformationSchemaColumnHandle("table_schema"), new NullableValue(VARCHAR, Slices.utf8Slice(""))));
+    }
+
+    private void assertApplyFilterReturnsEmptyPrefixes(SchemaTableName schemaTableName, Map<ColumnHandle, NullableValue> constraint)
+    {
+        TransactionId transactionId = transactionManager.beginTransaction(false);
+        ConnectorSession session = createNewSession(transactionId);
+        ConnectorMetadata metadata = new InformationSchemaMetadata("test_catalog", this.metadata);
+
+        InformationSchemaTableHandle tableHandle = (InformationSchemaTableHandle) metadata.getTableHandle(session, schemaTableName);
+
+        assertTrue(metadata.applyFilter(session, tableHandle, new Constraint(TupleDomain.fromFixedValues(constraint)))
+                .map(ConstraintApplicationResult::getHandle)
+                .map(InformationSchemaTableHandle.class::cast)
+                .orElseThrow(AssertionError::new)
+                .getPrefixes().isEmpty());
+    }
+
+    private static boolean testConstraint(Map<ColumnHandle, NullableValue> bindings)
+    {
+        // test_schema has a table named "another_table" and we filter that out in this predicate
+        NullableValue catalog = bindings.get(new InformationSchemaColumnHandle("table_catalog"));
+        NullableValue schema = bindings.get(new InformationSchemaColumnHandle("table_schema"));
+        NullableValue table = bindings.get(new InformationSchemaColumnHandle("table_name"));
+        boolean isValid = true;
+        if (catalog != null) {
+            isValid = ((Slice) catalog.getValue()).toStringUtf8().equals("test_catalog");
+        }
+        if (schema != null) {
+            isValid &= ((Slice) schema.getValue()).toStringUtf8().equals("test_schema");
+        }
+        if (table != null) {
+            isValid &= ((Slice) table.getValue()).toStringUtf8().equals("test_view");
+        }
+        return isValid;
     }
 
     private static ConnectorSession createNewSession(TransactionId transactionId)

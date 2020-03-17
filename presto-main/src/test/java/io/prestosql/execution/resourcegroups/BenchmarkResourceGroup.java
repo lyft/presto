@@ -15,6 +15,7 @@ package io.prestosql.execution.resourcegroups;
 
 import io.airlift.units.DataSize;
 import io.prestosql.execution.MockManagedQueryExecution;
+import io.prestosql.execution.MockManagedQueryExecution.MockManagedQueryExecutionBuilder;
 import io.prestosql.execution.resourcegroups.InternalResourceGroup.RootInternalResourceGroup;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -51,7 +52,7 @@ public class BenchmarkResourceGroup
     @Benchmark
     public Object benchmark(BenchmarkData data)
     {
-        data.getRoot().processQueuedQueries();
+        data.getRoot().updateGroupsAndProcessQueuedQueries();
         return data.getRoot();
     }
 
@@ -72,18 +73,21 @@ public class BenchmarkResourceGroup
         public void setup()
         {
             root = new RootInternalResourceGroup("root", (group, export) -> {}, executor);
-            root.setSoftMemoryLimit(new DataSize(1, MEGABYTE));
+            root.setSoftMemoryLimitBytes(DataSize.of(1, MEGABYTE).toBytes());
             root.setMaxQueuedQueries(queries);
             root.setHardConcurrencyLimit(queries);
             InternalResourceGroup group = root;
             for (int i = 0; i < children; i++) {
                 group = root.getOrCreateSubGroup(String.valueOf(i));
-                group.setSoftMemoryLimit(new DataSize(1, MEGABYTE));
+                group.setSoftMemoryLimitBytes(DataSize.of(1, MEGABYTE).toBytes());
                 group.setMaxQueuedQueries(queries);
                 group.setHardConcurrencyLimit(queries);
             }
             for (int i = 0; i < queries; i++) {
-                group.run(new MockManagedQueryExecution(10));
+                MockManagedQueryExecution query = new MockManagedQueryExecutionBuilder()
+                        .withInitialMemoryUsage(DataSize.ofBytes(10))
+                        .build();
+                group.run(query);
             }
         }
 

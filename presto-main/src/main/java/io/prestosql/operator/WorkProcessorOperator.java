@@ -15,9 +15,28 @@ package io.prestosql.operator;
 
 import io.prestosql.spi.Page;
 
+import java.util.Optional;
+
 // TODO: support spill
 public interface WorkProcessorOperator
         extends AutoCloseable
 {
     WorkProcessor<Page> getOutputPages();
+
+    /**
+     * Returns {@link OperatorInfo}. This method must be thread safe.
+     * This method might be called after operator is closed to obtain
+     * final {@link OperatorInfo}.
+     */
+    default Optional<OperatorInfo> getOperatorInfo()
+    {
+        return Optional.empty();
+    }
+
+    @Override
+    default void close()
+            throws Exception
+    {
+        // do nothing
+    }
 }

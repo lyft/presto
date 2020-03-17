@@ -13,11 +13,13 @@
  */
 package io.prestosql.plugin.jdbc;
 
+import io.prestosql.plugin.jdbc.credential.CredentialPropertiesProvider;
+import io.prestosql.plugin.jdbc.credential.CredentialProvider;
+import io.prestosql.plugin.jdbc.credential.DefaultCredentialPropertiesProvider;
+
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.SQLException;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Properties;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -29,58 +31,45 @@ public class DriverConnectionFactory
     private final Driver driver;
     private final String connectionUrl;
     private final Properties connectionProperties;
-    private final Optional<String> userCredentialName;
-    private final Optional<String> passwordCredentialName;
+    private final CredentialPropertiesProvider credentialPropertiesProvider;
 
-    public DriverConnectionFactory(Driver driver, BaseJdbcConfig config)
+    public DriverConnectionFactory(Driver driver, BaseJdbcConfig config, CredentialProvider credentialProvider)
     {
-        this(
-                driver,
+        this(driver,
                 config.getConnectionUrl(),
-                Optional.ofNullable(config.getUserCredentialName()),
-                Optional.ofNullable(config.getPasswordCredentialName()),
-                basicConnectionProperties(config));
+                new Properties(),
+                credentialProvider);
     }
 
-    public static Properties basicConnectionProperties(BaseJdbcConfig config)
+    public DriverConnectionFactory(Driver driver, String connectionUrl, Properties connectionProperties, CredentialProvider credentialProvider)
     {
-        Properties connectionProperties = new Properties();
-        if (config.getConnectionUser() != null) {
-            connectionProperties.setProperty("user", config.getConnectionUser());
-        }
-        if (config.getConnectionPassword() != null) {
-            connectionProperties.setProperty("password", config.getConnectionPassword());
-        }
-        return connectionProperties;
+        this(driver, connectionUrl, connectionProperties, new DefaultCredentialPropertiesProvider(credentialProvider));
     }
 
-    public DriverConnectionFactory(Driver driver, String connectionUrl, Optional<String> userCredentialName, Optional<String> passwordCredentialName, Properties connectionProperties)
+    public DriverConnectionFactory(Driver driver, String connectionUrl, Properties connectionProperties, CredentialPropertiesProvider credentialPropertiesProvider)
     {
         this.driver = requireNonNull(driver, "driver is null");
         this.connectionUrl = requireNonNull(connectionUrl, "connectionUrl is null");
         this.connectionProperties = new Properties();
-        this.connectionProperties.putAll(requireNonNull(connectionProperties, "basicConnectionProperties is null"));
-        this.userCredentialName = requireNonNull(userCredentialName, "userCredentialName is null");
-        this.passwordCredentialName = requireNonNull(passwordCredentialName, "passwordCredentialName is null");
+        this.connectionProperties.putAll(requireNonNull(connectionProperties, "connectionProperties is null"));
+        this.credentialPropertiesProvider = requireNonNull(credentialPropertiesProvider, "credentialPropertiesProvider is null");
     }
 
     @Override
     public Connection openConnection(JdbcIdentity identity)
             throws SQLException
     {
-        userCredentialName.ifPresent(credentialName -> setConnectionProperty(connectionProperties, identity.getExtraCredentials(), credentialName, "user"));
-        passwordCredentialName.ifPresent(credentialName -> setConnectionProperty(connectionProperties, identity.getExtraCredentials(), credentialName, "password"));
-
-        Connection connection = driver.connect(connectionUrl, connectionProperties);
+        Properties properties = getCredentialProperties(identity);
+        Connection connection = driver.connect(connectionUrl, properties);
         checkState(connection != null, "Driver returned null connection");
         return connection;
     }
 
-    private static void setConnectionProperty(Properties connectionProperties, Map<String, String> extraCredentials, String credentialName, String propertyName)
+    private Properties getCredentialProperties(JdbcIdentity identity)
     {
-        String value = extraCredentials.get(credentialName);
-        if (value != null) {
-            connectionProperties.setProperty(propertyName, value);
-        }
+        Properties properties = new Properties();
+        properties.putAll(connectionProperties);
+        properties.putAll(credentialPropertiesProvider.getCredentialProperties(identity));
+        return properties;
     }
 }

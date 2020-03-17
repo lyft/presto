@@ -31,7 +31,7 @@ import java.util.UUID;
 import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
 
-public class CassandraTestingUtils
+public final class CassandraTestingUtils
 {
     public static final String TABLE_ALL_TYPES = "table_all_types";
     public static final String TABLE_ALL_TYPES_INSERT = "table_all_types_insert";
@@ -76,12 +76,12 @@ public class CassandraTestingUtils
 
     public static void insertIntoTableClusteringKeys(CassandraSession session, SchemaTableName table, int rowsCount)
     {
-        for (Integer rowNumber = 1; rowNumber <= rowsCount; rowNumber++) {
+        for (int rowNumber = 1; rowNumber <= rowsCount; rowNumber++) {
             Insert insert = QueryBuilder.insertInto(table.getSchemaName(), table.getTableName())
-                    .value("key", "key_" + rowNumber.toString())
+                    .value("key", "key_" + rowNumber)
                     .value("clust_one", "clust_one")
-                    .value("clust_two", "clust_two_" + rowNumber.toString())
-                    .value("clust_three", "clust_three_" + rowNumber.toString());
+                    .value("clust_two", "clust_two_" + rowNumber)
+                    .value("clust_three", "clust_three_" + rowNumber);
             session.execute(insert);
         }
         assertEquals(session.execute("SELECT COUNT(*) FROM " + table).all().get(0).getLong(0), rowsCount);
@@ -104,13 +104,13 @@ public class CassandraTestingUtils
 
     public static void insertIntoTableMultiPartitionClusteringKeys(CassandraSession session, SchemaTableName table)
     {
-        for (Integer rowNumber = 1; rowNumber < 10; rowNumber++) {
+        for (int rowNumber = 1; rowNumber < 10; rowNumber++) {
             Insert insert = QueryBuilder.insertInto(table.getSchemaName(), table.getTableName())
-                    .value("partition_one", "partition_one_" + rowNumber.toString())
-                    .value("partition_two", "partition_two_" + rowNumber.toString())
+                    .value("partition_one", "partition_one_" + rowNumber)
+                    .value("partition_two", "partition_two_" + rowNumber)
                     .value("clust_one", "clust_one")
-                    .value("clust_two", "clust_two_" + rowNumber.toString())
-                    .value("clust_three", "clust_three_" + rowNumber.toString());
+                    .value("clust_two", "clust_two_" + rowNumber)
+                    .value("clust_three", "clust_three_" + rowNumber);
             session.execute(insert);
         }
         assertEquals(session.execute("SELECT COUNT(*) FROM " + table).all().get(0).getLong(0), 9);
@@ -132,7 +132,7 @@ public class CassandraTestingUtils
 
     public static void insertIntoTableClusteringKeysInequality(CassandraSession session, SchemaTableName table, Date date, int rowsCount)
     {
-        for (Integer rowNumber = 1; rowNumber <= rowsCount; rowNumber++) {
+        for (int rowNumber = 1; rowNumber <= rowsCount; rowNumber++) {
             Insert insert = QueryBuilder.insertInto(table.getSchemaName(), table.getTableName())
                     .value("key", "key_1")
                     .value("clust_one", "clust_one")
@@ -223,12 +223,12 @@ public class CassandraTestingUtils
 
     private static void insertTestData(CassandraSession session, SchemaTableName table, Date date, int rowsCount)
     {
-        for (Integer rowNumber = 1; rowNumber <= rowsCount; rowNumber++) {
+        for (int rowNumber = 1; rowNumber <= rowsCount; rowNumber++) {
             Insert insert = QueryBuilder.insertInto(table.getSchemaName(), table.getTableName())
-                    .value("key", "key " + rowNumber.toString())
+                    .value("key", "key " + rowNumber)
                     .value("typeuuid", UUID.fromString(format("00000000-0000-0000-0000-%012d", rowNumber)))
                     .value("typeinteger", rowNumber)
-                    .value("typelong", rowNumber.longValue() + 1000)
+                    .value("typelong", rowNumber + 1000)
                     .value("typebytes", ByteBuffer.wrap(Ints.toByteArray(rowNumber)).asReadOnlyBuffer())
                     .value("typetimestamp", date)
                     .value("typeansi", "ansi " + rowNumber)

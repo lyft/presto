@@ -225,11 +225,11 @@ public class QueryMonitor
         QueryStats queryStats = queryInfo.getQueryStats();
         return new QueryStatistics(
                 ofMillis(queryStats.getTotalCpuTime().toMillis()),
-                ofMillis(queryStats.getTotalScheduledTime().toMillis()),
+                ofMillis(queryStats.getElapsedTime().toMillis()),
                 ofMillis(queryStats.getQueuedTime().toMillis()),
                 Optional.of(ofMillis(queryStats.getResourceWaitingTime().toMillis())),
                 Optional.of(ofMillis(queryStats.getAnalysisTime().toMillis())),
-                Optional.of(ofMillis(queryStats.getDistributedPlanningTime().toMillis())),
+                Optional.of(ofMillis(queryStats.getExecutionTime().toMillis())),
                 queryStats.getPeakUserMemoryReservation().toBytes(),
                 queryStats.getPeakTotalMemoryReservation().toBytes(),
                 queryStats.getPeakTaskUserMemory().toBytes(),
@@ -287,7 +287,7 @@ public class QueryMonitor
         }
         catch (Exception e) {
             // Sometimes it is expected to fail. For example if generated plan is too long.
-            // Don't fail to create event if the plan can not be created.
+            // Don't fail to create event if the plan cannot be created.
             log.warn(e, "Error creating explain plan for query %s", queryInfo.getQueryId());
         }
         return Optional.empty();
@@ -387,7 +387,7 @@ public class QueryMonitor
             }
 
             // planning duration -- start to end of planning
-            long planning = queryStats.getTotalPlanningTime().toMillis();
+            long planning = queryStats.getPlanningTime().toMillis();
 
             // Time spent waiting for required no. of worker nodes to be present
             long waiting = queryStats.getResourceWaitingTime().toMillis();
@@ -528,14 +528,14 @@ public class QueryMonitor
         return new StageCpuDistribution(
                 stageInfo.getStageId().getId(),
                 stageInfo.getTasks().size(),
-                snapshot.getP25(),
-                snapshot.getP50(),
-                snapshot.getP75(),
-                snapshot.getP90(),
-                snapshot.getP95(),
-                snapshot.getP99(),
-                snapshot.getMin(),
-                snapshot.getMax(),
+                (long) snapshot.getP25(),
+                (long) snapshot.getP50(),
+                (long) snapshot.getP75(),
+                (long) snapshot.getP90(),
+                (long) snapshot.getP95(),
+                (long) snapshot.getP99(),
+                (long) snapshot.getMin(),
+                (long) snapshot.getMax(),
                 (long) snapshot.getTotal(),
                 snapshot.getTotal() / snapshot.getCount());
     }

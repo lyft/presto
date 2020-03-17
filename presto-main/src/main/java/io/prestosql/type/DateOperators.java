@@ -55,9 +55,7 @@ import static io.prestosql.util.DateTimeZoneIndex.getChronology;
 
 public final class DateOperators
 {
-    private DateOperators()
-    {
-    }
+    private DateOperators() {}
 
     @ScalarOperator(EQUAL)
     @SqlType(StandardTypes.BOOLEAN)
@@ -122,9 +120,7 @@ public final class DateOperators
             ISOChronology chronology = getChronology(session.getTimeZoneKey());
             return utcMillis - chronology.getZone().getOffset(utcMillis);
         }
-        else {
-            return TimeUnit.DAYS.toMillis(value);
-        }
+        return TimeUnit.DAYS.toMillis(value);
     }
 
     @ScalarOperator(CAST)
@@ -157,7 +153,7 @@ public final class DateOperators
         try {
             return parseDate(trim(value).toStringUtf8());
         }
-        catch (IllegalArgumentException e) {
+        catch (IllegalArgumentException | ArithmeticException e) {
             throw new PrestoException(INVALID_CAST_ARGUMENT, "Value cannot be cast to date: " + value.toStringUtf8(), e);
         }
     }
@@ -170,7 +166,7 @@ public final class DateOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static class DateDistinctFromOperator
+    public static final class DateDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

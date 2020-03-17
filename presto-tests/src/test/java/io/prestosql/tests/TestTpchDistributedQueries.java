@@ -14,19 +14,27 @@
 package io.prestosql.tests;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.airlift.json.JsonCodec;
+import io.airlift.json.JsonCodecFactory;
+import io.airlift.json.ObjectMapperProvider;
 import io.prestosql.Session;
 import io.prestosql.spi.connector.CatalogSchemaTableName;
+import io.prestosql.spi.type.Type;
 import io.prestosql.sql.planner.planprinter.IoPlanPrinter;
+import io.prestosql.sql.planner.planprinter.IoPlanPrinter.EstimatedStatsAndCost;
+import io.prestosql.testing.AbstractTestQueries;
 import io.prestosql.testing.MaterializedResult;
+import io.prestosql.testing.QueryRunner;
 import io.prestosql.tests.tpch.TpchQueryRunnerBuilder;
+import io.prestosql.type.TypeDeserializer;
 import org.intellij.lang.annotations.Language;
 import org.testng.annotations.Test;
 
 import java.util.Optional;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static io.airlift.json.JsonCodec.jsonCodec;
 import static io.prestosql.spi.predicate.Marker.Bound.EXACTLY;
 import static io.prestosql.spi.type.VarcharType.createVarcharType;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
@@ -36,22 +44,27 @@ import static org.testng.Assert.assertTrue;
 public class TestTpchDistributedQueries
         extends AbstractTestQueries
 {
-    public TestTpchDistributedQueries()
+    @Override
+    protected QueryRunner createQueryRunner()
+            throws Exception
     {
-        super(() -> TpchQueryRunnerBuilder.builder().build());
+        return TpchQueryRunnerBuilder.builder().build();
     }
 
     @Test
-    public void testIOExplain()
+    @Override
+    public void testIoExplain()
     {
         String query = "SELECT * FROM orders";
         MaterializedResult result = computeActual("EXPLAIN (TYPE IO, FORMAT JSON) " + query);
+        EstimatedStatsAndCost scanEstimate = new EstimatedStatsAndCost(15000.0, 1597294.0, 1597294.0, 0.0, 0.0);
+        EstimatedStatsAndCost totalEstimate = new EstimatedStatsAndCost(15000.0, 1597294.0, 1597294.0, 0.0, 1597294.0);
         IoPlanPrinter.IoPlan.TableColumnInfo input = new IoPlanPrinter.IoPlan.TableColumnInfo(
                 new CatalogSchemaTableName("tpch", "sf0.01", "orders"),
                 ImmutableSet.of(
                         new IoPlanPrinter.ColumnConstraint(
                                 "orderstatus",
-                                createVarcharType(1).getTypeSignature(),
+                                createVarcharType(1),
                                 new IoPlanPrinter.FormattedDomain(
                                         false,
                                         ImmutableSet.of(
@@ -63,10 +76,16 @@ public class TestTpchDistributedQueries
                                                         new IoPlanPrinter.FormattedMarker(Optional.of("O"), EXACTLY)),
                                                 new IoPlanPrinter.FormattedRange(
                                                         new IoPlanPrinter.FormattedMarker(Optional.of("P"), EXACTLY),
-                                                        new IoPlanPrinter.FormattedMarker(Optional.of("P"), EXACTLY)))))));
+                                                        new IoPlanPrinter.FormattedMarker(Optional.of("P"), EXACTLY)))))),
+                scanEstimate);
+
+        ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
+        objectMapperProvider.setJsonDeserializers(ImmutableMap.of(Type.class, new TypeDeserializer(getQueryRunner().getMetadata())));
+        JsonCodec<IoPlanPrinter.IoPlan> codec = new JsonCodecFactory(objectMapperProvider).jsonCodec(IoPlanPrinter.IoPlan.class);
+
         assertEquals(
-                jsonCodec(IoPlanPrinter.IoPlan.class).fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
-                new IoPlanPrinter.IoPlan(ImmutableSet.of(input), Optional.empty()));
+                codec.fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
+                new IoPlanPrinter.IoPlan(ImmutableSet.of(input), Optional.empty(), totalEstimate));
     }
 
     @Test
@@ -119,6 +138,8 @@ public class TestTpchDistributedQueries
         assertTrue(sampleSizeFound, "Table sample returned unexpected number of rows");
     }
 
+    @Test
+    @Override
     public void testShowTables()
     {
         assertQuerySucceeds(createSession("sf1"), "SHOW TABLES");
@@ -126,6 +147,26 @@ public class TestTpchDistributedQueries
         assertQuerySucceeds("SHOW TABLES FROM sf1");
         assertQuerySucceeds("SHOW TABLES FROM \"sf1.0\"");
         assertQueryFails("SHOW TABLES FROM sf0", "line 1:1: Schema 'sf0' does not exist");
+    }
+
+    @Test
+    public void testRowSubscriptWithReservedKeyword()
+    {
+        // Subscript over field named after reserved keyword. This test needs to run in distributed
+        // mode, as it uncovers a problem during deserialization plan expressions
+        assertQuery(
+                "SELECT cast(row(1) AS row(\"cross\" bigint))[1]",
+                "VALUES 1");
+    }
+
+    @Test
+    public void testRowTypeWithReservedKeyword()
+    {
+        // This test is here because it only reproduces the issue (https://github.com/prestosql/presto/issues/1962)
+        // when running in distributed mode
+        assertQuery(
+                "SELECT cast(row(1) AS row(\"cross\" bigint)).\"cross\"",
+                "VALUES 1");
     }
 
     private Session createSession(String schemaName)

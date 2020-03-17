@@ -57,9 +57,7 @@ import static io.prestosql.util.DateTimeZoneIndex.getChronology;
 
 public final class TimestampOperators
 {
-    private TimestampOperators()
-    {
-    }
+    private TimestampOperators() {}
 
     @ScalarOperator(SUBTRACT)
     @SqlType(StandardTypes.INTERVAL_DAY_TO_SECOND)
@@ -134,9 +132,8 @@ public final class TimestampOperators
             long millis = date + chronology.getZone().getOffset(date);
             return TimeUnit.MILLISECONDS.toDays(millis);
         }
-        else {
-            return TimeUnit.MILLISECONDS.toDays(value);
-        }
+
+        return TimeUnit.MILLISECONDS.toDays(value);
     }
 
     @ScalarOperator(CAST)
@@ -146,9 +143,8 @@ public final class TimestampOperators
         if (session.isLegacyTimestamp()) {
             return modulo24Hour(getChronology(session.getTimeZoneKey()), value);
         }
-        else {
-            return modulo24Hour(value);
-        }
+
+        return modulo24Hour(value);
     }
 
     @ScalarOperator(CAST)
@@ -159,13 +155,11 @@ public final class TimestampOperators
             int timeMillis = modulo24Hour(getChronology(session.getTimeZoneKey()), value);
             return packDateTimeWithZone(timeMillis, session.getTimeZoneKey());
         }
-        else {
-            ISOChronology localChronology = getChronology(session.getTimeZoneKey());
 
-            // This cast does treat TIMESTAMP as wall time in session TZ. This means that in order to get
-            // its UTC representation we need to shift the value by the offset of TZ.
-            return packDateTimeWithZone(localChronology.getZone().convertLocalToUTC(modulo24Hour(value), false), session.getTimeZoneKey());
-        }
+        ISOChronology localChronology = getChronology(session.getTimeZoneKey());
+        // This cast does treat TIMESTAMP as wall time in session TZ. This means that in order to get
+        // its UTC representation we need to shift the value by the offset of TZ.
+        return packDateTimeWithZone(localChronology.getZone().convertLocalToUTC(modulo24Hour(value), false), session.getTimeZoneKey());
     }
 
     @ScalarOperator(CAST)
@@ -175,13 +169,11 @@ public final class TimestampOperators
         if (session.isLegacyTimestamp()) {
             return packDateTimeWithZone(value, session.getTimeZoneKey());
         }
-        else {
-            ISOChronology localChronology = getChronology(session.getTimeZoneKey());
 
-            // This cast does treat TIMESTAMP as wall time in session TZ. This means that in order to get
-            // its UTC representation we need to shift the value by the offset of TZ.
-            return packDateTimeWithZone(localChronology.getZone().convertLocalToUTC(value, false), session.getTimeZoneKey());
-        }
+        ISOChronology localChronology = getChronology(session.getTimeZoneKey());
+        // This cast does treat TIMESTAMP as wall time in session TZ. This means that in order to get
+        // its UTC representation we need to shift the value by the offset of TZ.
+        return packDateTimeWithZone(localChronology.getZone().convertLocalToUTC(value, false), session.getTimeZoneKey());
     }
 
     @ScalarOperator(CAST)
@@ -192,9 +184,8 @@ public final class TimestampOperators
         if (session.isLegacyTimestamp()) {
             return utf8Slice(printTimestampWithoutTimeZone(session.getTimeZoneKey(), value));
         }
-        else {
-            return utf8Slice(printTimestampWithoutTimeZone(value));
-        }
+
+        return utf8Slice(printTimestampWithoutTimeZone(value));
     }
 
     @ScalarOperator(CAST)
@@ -211,13 +202,12 @@ public final class TimestampOperators
                 throw new PrestoException(INVALID_CAST_ARGUMENT, "Value cannot be cast to timestamp: " + value.toStringUtf8(), e);
             }
         }
-        else {
-            try {
-                return parseTimestampWithoutTimeZone(trim(value).toStringUtf8());
-            }
-            catch (IllegalArgumentException e) {
-                throw new PrestoException(INVALID_CAST_ARGUMENT, "Value cannot be cast to timestamp: " + value.toStringUtf8(), e);
-            }
+
+        try {
+            return parseTimestampWithoutTimeZone(trim(value).toStringUtf8());
+        }
+        catch (IllegalArgumentException e) {
+            throw new PrestoException(INVALID_CAST_ARGUMENT, "Value cannot be cast to timestamp: " + value.toStringUtf8(), e);
         }
     }
 
@@ -229,7 +219,7 @@ public final class TimestampOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static class TimestampDistinctFromOperator
+    public static final class TimestampDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

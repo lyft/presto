@@ -46,18 +46,18 @@ public class TestQueryStateInfo
     public void testQueryStateInfo()
     {
         InternalResourceGroup.RootInternalResourceGroup root = new InternalResourceGroup.RootInternalResourceGroup("root", (group, export) -> {}, directExecutor());
-        root.setSoftMemoryLimit(new DataSize(1, MEGABYTE));
+        root.setSoftMemoryLimitBytes(DataSize.of(1, MEGABYTE).toBytes());
         root.setMaxQueuedQueries(40);
         root.setHardConcurrencyLimit(0);
         root.setSchedulingPolicy(WEIGHTED);
 
         InternalResourceGroup rootA = root.getOrCreateSubGroup("a");
-        rootA.setSoftMemoryLimit(new DataSize(1, MEGABYTE));
+        rootA.setSoftMemoryLimitBytes(DataSize.of(1, MEGABYTE).toBytes());
         rootA.setMaxQueuedQueries(20);
         rootA.setHardConcurrencyLimit(0);
 
         InternalResourceGroup rootAX = rootA.getOrCreateSubGroup("x");
-        rootAX.setSoftMemoryLimit(new DataSize(1, MEGABYTE));
+        rootAX.setSoftMemoryLimitBytes(DataSize.of(1, MEGABYTE).toBytes());
         rootAX.setMaxQueuedQueries(10);
         rootAX.setHardConcurrencyLimit(0);
 
@@ -108,11 +108,10 @@ public class TestQueryStateInfo
                         DateTime.parse("1991-09-06T05:01-05:30"),
                         DateTime.parse("1991-09-06T05:02-05:30"),
                         DateTime.parse("1991-09-06T06:00-05:30"),
+                        Duration.valueOf("10s"),
                         Duration.valueOf("8m"),
                         Duration.valueOf("7m"),
                         Duration.valueOf("34m"),
-                        Duration.valueOf("35m"),
-                        Duration.valueOf("44m"),
                         Duration.valueOf("9m"),
                         Duration.valueOf("10m"),
                         Duration.valueOf("11m"),
@@ -143,6 +142,7 @@ public class TestQueryStateInfo
                         ImmutableSet.of(WAITING_FOR_MEMORY),
                         DataSize.valueOf("271GB"),
                         281,
+                        Duration.valueOf("26m"),
                         DataSize.valueOf("272GB"),
                         282,
                         DataSize.valueOf("27GB"),

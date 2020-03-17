@@ -49,9 +49,6 @@ class QueryStateTimer
     private final AtomicReference<Long> beginAnalysisNanos = new AtomicReference<>();
     private final AtomicReference<Duration> analysisTime = new AtomicReference<>();
 
-    private final AtomicReference<Long> beginDistributedPlanningNanos = new AtomicReference<>();
-    private final AtomicReference<Duration> distributedPlanningTime = new AtomicReference<>();
-
     private final AtomicReference<Long> lastHeartbeatNanos;
 
     public QueryStateTimer(Ticker ticker)
@@ -143,30 +140,34 @@ class QueryStateTimer
         finishingTime.compareAndSet(null, nanosSince(beginFinishingNanos, now));
         executionTime.compareAndSet(null, nanosSince(beginPlanningNanos, now));
         endNanos.compareAndSet(null, now);
+
+        // Analysis is run in separate thread and there is no query state for analysis.
+        // In case when analysis thread was canceled the analysis should be marked as finished.
+        if (beginAnalysisNanos.get() == null) {
+            analysisTime.compareAndSet(null, succinctNanos(0));
+        }
+        else {
+            endAnalysis(now);
+        }
     }
 
     //
     //  Additional timings
     //
 
-    public void beginAnalyzing()
+    public void beginAnalysis()
     {
         beginAnalysisNanos.compareAndSet(null, tickerNanos());
     }
 
     public void endAnalysis()
     {
-        analysisTime.compareAndSet(null, nanosSince(beginAnalysisNanos, tickerNanos()));
+        endAnalysis(tickerNanos());
     }
 
-    public void beginDistributedPlanning()
+    private void endAnalysis(long now)
     {
-        beginDistributedPlanningNanos.compareAndSet(null, tickerNanos());
-    }
-
-    public void endDistributedPlanning()
-    {
-        distributedPlanningTime.compareAndSet(null, nanosSince(beginDistributedPlanningNanos, tickerNanos()));
+        analysisTime.compareAndSet(null, nanosSince(beginAnalysisNanos, now));
     }
 
     public void recordHeartbeat()
@@ -240,11 +241,6 @@ class QueryStateTimer
     public Duration getAnalysisTime()
     {
         return getDuration(analysisTime, beginAnalysisNanos);
-    }
-
-    public Duration getDistributedPlanningTime()
-    {
-        return getDuration(distributedPlanningTime, beginDistributedPlanningNanos);
     }
 
     public DateTime getLastHeartbeat()

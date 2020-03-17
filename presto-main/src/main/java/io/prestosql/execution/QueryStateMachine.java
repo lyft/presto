@@ -124,6 +124,7 @@ public class QueryStateMachine
     private final QueryStateTimer queryStateTimer;
 
     private final StateMachine<QueryState> queryState;
+    private final AtomicBoolean queryCleanedUp = new AtomicBoolean();
 
     private final AtomicReference<String> setCatalog = new AtomicReference<>();
     private final AtomicReference<String> setSchema = new AtomicReference<>();
@@ -446,6 +447,7 @@ public class QueryStateMachine
 
         long physicalInputDataSize = 0;
         long physicalInputPositions = 0;
+        long physicalInputReadTime = 0;
 
         long internalNetworkInputDataSize = 0;
         long internalNetworkInputPositions = 0;
@@ -494,6 +496,7 @@ public class QueryStateMachine
 
             physicalInputDataSize += stageStats.getPhysicalInputDataSize().toBytes();
             physicalInputPositions += stageStats.getPhysicalInputPositions();
+            physicalInputReadTime += stageStats.getPhysicalInputReadTime().roundTo(MILLISECONDS);
 
             internalNetworkInputDataSize += stageStats.getInternalNetworkInputDataSize().toBytes();
             internalNetworkInputPositions += stageStats.getInternalNetworkInputPositions();
@@ -535,7 +538,6 @@ public class QueryStateMachine
                 queryStateTimer.getDispatchingTime(),
                 queryStateTimer.getExecutionTime(),
                 queryStateTimer.getAnalysisTime(),
-                queryStateTimer.getDistributedPlanningTime(),
                 queryStateTimer.getPlanningTime(),
                 queryStateTimer.getFinishingTime(),
 
@@ -570,6 +572,7 @@ public class QueryStateMachine
 
                 succinctBytes(physicalInputDataSize),
                 physicalInputPositions,
+                new Duration(physicalInputReadTime, MILLISECONDS).convertToMostSuccinctTimeUnit(),
                 succinctBytes(internalNetworkInputDataSize),
                 internalNetworkInputPositions,
                 succinctBytes(rawInputDataSize),
@@ -762,6 +765,14 @@ public class QueryStateMachine
             return false;
         }
 
+        try {
+            cleanupQuery();
+        }
+        catch (Exception e) {
+            transitionToFailed(e);
+            return true;
+        }
+
         Optional<TransactionId> transactionId = session.getTransactionId();
         if (transactionId.isPresent() && transactionManager.transactionExists(transactionId.get()) && transactionManager.isAutoCommit(transactionId.get())) {
             ListenableFuture<?> commitFuture = transactionManager.asyncCommit(transactionId.get());
@@ -788,7 +799,6 @@ public class QueryStateMachine
 
     private void transitionToFinished()
     {
-        cleanupQueryQuietly();
         queryStateTimer.endQuery();
 
         queryState.setIf(FINISHED, currentState -> !currentState.isDone());
@@ -805,8 +815,13 @@ public class QueryStateMachine
         requireNonNull(throwable, "throwable is null");
         failureCause.compareAndSet(null, toFailure(throwable));
 
-        boolean failed = queryState.setIf(FAILED, currentState -> !currentState.isDone());
-        if (failed) {
+        QueryState oldState = queryState.trySet(FAILED);
+        if (oldState.isDone()) {
+            QUERY_STATE_LOG.debug(throwable, "Failure after query %s finished", queryId);
+            return false;
+        }
+
+        try {
             QUERY_STATE_LOG.debug(throwable, "Query %s failed", queryId);
             session.getTransactionId().ifPresent(transactionId -> {
                 if (transactionManager.isAutoCommit(transactionId)) {
@@ -817,11 +832,14 @@ public class QueryStateMachine
                 }
             });
         }
-        else {
-            QUERY_STATE_LOG.debug(throwable, "Failure after query %s finished", queryId);
+        finally {
+            // if the query has not started, then there is no final query info to wait for
+            if (oldState.ordinal() <= PLANNING.ordinal()) {
+                finalQueryInfo.compareAndSet(Optional.empty(), Optional.of(getQueryInfo(Optional.empty())));
+            }
         }
 
-        return failed;
+        return true;
     }
 
     public boolean transitionToCanceled()
@@ -849,10 +867,18 @@ public class QueryStateMachine
         return canceled;
     }
 
+    private void cleanupQuery()
+    {
+        // only execute cleanup once
+        if (queryCleanedUp.compareAndSet(false, true)) {
+            metadata.cleanupQuery(session);
+        }
+    }
+
     private void cleanupQueryQuietly()
     {
         try {
-            metadata.cleanupQuery(session);
+            cleanupQuery();
         }
         catch (Throwable t) {
             QUERY_STATE_LOG.error("Error cleaning up query: %s", t);
@@ -897,22 +923,12 @@ public class QueryStateMachine
 
     public void beginAnalysis()
     {
-        queryStateTimer.beginAnalyzing();
+        queryStateTimer.beginAnalysis();
     }
 
     public void endAnalysis()
     {
         queryStateTimer.endAnalysis();
-    }
-
-    public void beginDistributedPlanning()
-    {
-        queryStateTimer.beginDistributedPlanning();
-    }
-
-    public void endDistributedPlanning()
-    {
-        queryStateTimer.endDistributedPlanning();
     }
 
     public DateTime getCreateTime()
@@ -978,7 +994,6 @@ public class QueryStateMachine
         Optional<StageInfo> prunedOutputStage = queryInfo.getOutputStage().map(outputStage -> new StageInfo(
                 outputStage.getStageId(),
                 outputStage.getState(),
-                outputStage.getSelf(),
                 null, // Remove the plan
                 outputStage.getTypes(),
                 outputStage.getStageStats(),
@@ -1033,8 +1048,7 @@ public class QueryStateMachine
                 queryStats.getDispatchingTime(),
                 queryStats.getExecutionTime(),
                 queryStats.getAnalysisTime(),
-                queryStats.getDistributedPlanningTime(),
-                queryStats.getTotalPlanningTime(),
+                queryStats.getPlanningTime(),
                 queryStats.getFinishingTime(),
                 queryStats.getTotalTasks(),
                 queryStats.getRunningTasks(),
@@ -1062,6 +1076,7 @@ public class QueryStateMachine
                 queryStats.getBlockedReasons(),
                 queryStats.getPhysicalInputDataSize(),
                 queryStats.getPhysicalInputPositions(),
+                queryStats.getPhysicalInputReadTime(),
                 queryStats.getInternalNetworkInputDataSize(),
                 queryStats.getInternalNetworkInputPositions(),
                 queryStats.getRawInputDataSize(),

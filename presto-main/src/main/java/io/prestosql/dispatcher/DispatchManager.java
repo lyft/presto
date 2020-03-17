@@ -30,6 +30,7 @@ import io.prestosql.server.BasicQueryInfo;
 import io.prestosql.server.SessionContext;
 import io.prestosql.server.SessionPropertyDefaults;
 import io.prestosql.server.SessionSupplier;
+import io.prestosql.server.protocol.Slug;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.QueryId;
 import io.prestosql.spi.resourcegroups.SelectionContext;
@@ -79,7 +80,7 @@ public class DispatchManager
     public DispatchManager(
             QueryIdGenerator queryIdGenerator,
             QueryPreparer queryPreparer,
-            @SuppressWarnings("rawtypes") ResourceGroupManager resourceGroupManager,
+            ResourceGroupManager<?> resourceGroupManager,
             DispatchQueryFactory dispatchQueryFactory,
             FailedDispatchQueryFactory failedDispatchQueryFactory,
             TransactionManager transactionManager,
@@ -131,7 +132,7 @@ public class DispatchManager
         return queryIdGenerator.createNextQueryId();
     }
 
-    public ListenableFuture<?> createQuery(QueryId queryId, String slug, SessionContext sessionContext, String query)
+    public ListenableFuture<?> createQuery(QueryId queryId, Slug slug, SessionContext sessionContext, String query)
     {
         requireNonNull(queryId, "queryId is null");
         requireNonNull(sessionContext, "sessionFactory is null");
@@ -155,9 +156,10 @@ public class DispatchManager
      *  Creates and registers a dispatch query with the query tracker.  This method will never fail to register a query with the query
      *  tracker.  If an error occurs while creating a dispatch query, a failed dispatch will be created and registered.
      */
-    private <C> void createQueryInternal(QueryId queryId, String slug, SessionContext sessionContext, String query, ResourceGroupManager<C> resourceGroupManager)
+    private <C> void createQueryInternal(QueryId queryId, Slug slug, SessionContext sessionContext, String query, ResourceGroupManager<C> resourceGroupManager)
     {
         Session session = null;
+        PreparedQuery preparedQuery = null;
         try {
             if (query.length() > maxQueryLength) {
                 int queryLength = query.length();
@@ -168,14 +170,18 @@ public class DispatchManager
             // decode session
             session = sessionSupplier.createSession(queryId, sessionContext);
 
+            // check query execute permissions
+            accessControl.checkCanExecuteQuery(sessionContext.getIdentity());
+
             // prepare query
-            PreparedQuery preparedQuery = queryPreparer.prepareQuery(session, query);
+            preparedQuery = queryPreparer.prepareQuery(session, query);
 
             // select resource group
             Optional<String> queryType = getQueryType(preparedQuery.getStatement().getClass()).map(Enum::name);
             SelectionContext<C> selectionContext = resourceGroupManager.selectGroup(new SelectionCriteria(
                     sessionContext.getIdentity().getPrincipal().isPresent(),
                     sessionContext.getIdentity().getUser(),
+                    sessionContext.getIdentity().getGroups(),
                     Optional.ofNullable(sessionContext.getSource()),
                     sessionContext.getClientTags(),
                     sessionContext.getResourceEstimates(),
@@ -214,7 +220,8 @@ public class DispatchManager
                         .setSource(sessionContext.getSource())
                         .build();
             }
-            DispatchQuery failedDispatchQuery = failedDispatchQueryFactory.createFailedDispatchQuery(session, query, Optional.empty(), throwable);
+            Optional<String> preparedSql = Optional.ofNullable(preparedQuery).flatMap(PreparedQuery::getPrepareSql);
+            DispatchQuery failedDispatchQuery = failedDispatchQueryFactory.createFailedDispatchQuery(session, query, preparedSql, Optional.empty(), throwable);
             queryCreated(failedDispatchQuery);
         }
     }
@@ -269,6 +276,11 @@ public class DispatchManager
         return queryTracker.getQuery(queryId).getBasicQueryInfo();
     }
 
+    public Optional<QueryInfo> getFullQueryInfo(QueryId queryId)
+    {
+        return queryTracker.tryGetQuery(queryId).map(DispatchQuery::getFullQueryInfo);
+    }
+
     public Optional<DispatchInfo> getDispatchInfo(QueryId queryId)
     {
         return queryTracker.tryGetQuery(queryId)
@@ -282,6 +294,14 @@ public class DispatchManager
     {
         queryTracker.tryGetQuery(queryId)
                 .ifPresent(DispatchQuery::cancel);
+    }
+
+    public void failQuery(QueryId queryId, Throwable cause)
+    {
+        requireNonNull(cause, "cause is null");
+
+        queryTracker.tryGetQuery(queryId)
+                .ifPresent(query -> query.fail(cause));
     }
 
     private static class DispatchQueryCreationFuture
@@ -302,7 +322,7 @@ public class DispatchManager
         @Override
         public boolean cancel(boolean mayInterruptIfRunning)
         {
-            // query submission can not be canceled
+            // query submission cannot be canceled
             return false;
         }
     }

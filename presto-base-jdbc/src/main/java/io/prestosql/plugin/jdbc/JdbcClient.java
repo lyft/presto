@@ -49,7 +49,7 @@ public interface JdbcClient
 
     WriteMapping toWriteMapping(ConnectorSession session, Type type);
 
-    ConnectorSplitSource getSplits(JdbcIdentity identity, JdbcTableHandle tableHandle);
+    ConnectorSplitSource getSplits(ConnectorSession session, JdbcTableHandle tableHandle);
 
     Connection getConnection(JdbcIdentity identity, JdbcSplit split)
             throws SQLException;
@@ -81,7 +81,7 @@ public interface JdbcClient
 
     void commitCreateTable(JdbcIdentity identity, JdbcOutputTableHandle handle);
 
-    JdbcOutputTableHandle beginInsertTable(ConnectorSession session, ConnectorTableMetadata tableMetadata);
+    JdbcOutputTableHandle beginInsertTable(ConnectorSession session, JdbcTableHandle tableHandle, List<JdbcColumnHandle> columns);
 
     void finishInsertTable(JdbcIdentity identity, JdbcOutputTableHandle handle);
 
@@ -98,4 +98,8 @@ public interface JdbcClient
             throws SQLException;
 
     TableStatistics getTableStatistics(ConnectorSession session, JdbcTableHandle handle, TupleDomain<ColumnHandle> tupleDomain);
+
+    void createSchema(JdbcIdentity identity, String schemaName);
+
+    void dropSchema(JdbcIdentity identity, String schemaName);
 }

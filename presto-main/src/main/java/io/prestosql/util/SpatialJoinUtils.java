@@ -13,6 +13,8 @@
  */
 package io.prestosql.util;
 
+import io.prestosql.metadata.ResolvedFunction;
+import io.prestosql.metadata.Signature;
 import io.prestosql.sql.planner.Symbol;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.tree.ComparisonExpression;
@@ -32,7 +34,7 @@ import static io.prestosql.sql.ExpressionUtils.extractConjuncts;
 import static io.prestosql.sql.tree.ComparisonExpression.Operator.LESS_THAN;
 import static io.prestosql.sql.tree.ComparisonExpression.Operator.LESS_THAN_OR_EQUAL;
 
-public class SpatialJoinUtils
+public final class SpatialJoinUtils
 {
     public static final String ST_CONTAINS = "st_contains";
     public static final String ST_WITHIN = "st_within";
@@ -60,9 +62,10 @@ public class SpatialJoinUtils
 
     private static boolean isSupportedSpatialFunction(FunctionCall functionCall)
     {
-        String functionName = functionCall.getName().toString();
-        return functionName.equalsIgnoreCase(ST_CONTAINS) || functionName.equalsIgnoreCase(ST_WITHIN)
-                || functionName.equalsIgnoreCase(ST_INTERSECTS);
+        String functionName = getFunctionName(functionCall);
+        return functionName.equalsIgnoreCase(ST_CONTAINS) ||
+                functionName.equalsIgnoreCase(ST_WITHIN) ||
+                functionName.equalsIgnoreCase(ST_INTERSECTS);
     }
 
     /**
@@ -101,10 +104,18 @@ public class SpatialJoinUtils
     private static boolean isSTDistance(Expression expression)
     {
         if (expression instanceof FunctionCall) {
-            return ((FunctionCall) expression).getName().toString().equalsIgnoreCase(ST_DISTANCE);
+            return getFunctionName((FunctionCall) expression).equalsIgnoreCase(ST_DISTANCE);
         }
 
         return false;
+    }
+
+    private static String getFunctionName(FunctionCall functionCall)
+    {
+        return ResolvedFunction.fromQualifiedName(functionCall.getName())
+                .map(ResolvedFunction::getSignature)
+                .map(Signature::getName)
+                .orElse(functionCall.getName().toString());
     }
 
     public static boolean isSpatialJoinFilter(PlanNode left, PlanNode right, Expression filterExpression)

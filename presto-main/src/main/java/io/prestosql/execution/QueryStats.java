@@ -50,8 +50,7 @@ public class QueryStats
     private final Duration dispatchingTime;
     private final Duration executionTime;
     private final Duration analysisTime;
-    private final Duration distributedPlanningTime;
-    private final Duration totalPlanningTime;
+    private final Duration planningTime;
     private final Duration finishingTime;
 
     private final int totalTasks;
@@ -84,6 +83,7 @@ public class QueryStats
 
     private final DataSize physicalInputDataSize;
     private final long physicalInputPositions;
+    private final Duration physicalInputReadTime;
 
     private final DataSize internalNetworkInputDataSize;
     private final long internalNetworkInputPositions;
@@ -116,8 +116,7 @@ public class QueryStats
             @JsonProperty("dispatchingTime") Duration dispatchingTime,
             @JsonProperty("executionTime") Duration executionTime,
             @JsonProperty("analysisTime") Duration analysisTime,
-            @JsonProperty("distributedPlanningTime") Duration distributedPlanningTime,
-            @JsonProperty("totalPlanningTime") Duration totalPlanningTime,
+            @JsonProperty("planningTime") Duration planningTime,
             @JsonProperty("finishingTime") Duration finishingTime,
 
             @JsonProperty("totalTasks") int totalTasks,
@@ -150,6 +149,7 @@ public class QueryStats
 
             @JsonProperty("physicalInputDataSize") DataSize physicalInputDataSize,
             @JsonProperty("physicalInputPositions") long physicalInputPositions,
+            @JsonProperty("physicalInputReadTime") Duration physicalInputReadTime,
 
             @JsonProperty("internalNetworkInputDataSize") DataSize internalNetworkInputDataSize,
             @JsonProperty("internalNetworkInputPositions") long internalNetworkInputPositions,
@@ -180,8 +180,7 @@ public class QueryStats
         this.dispatchingTime = requireNonNull(dispatchingTime, "dispatchingTime is null");
         this.executionTime = requireNonNull(executionTime, "executionTime is null");
         this.analysisTime = requireNonNull(analysisTime, "analysisTime is null");
-        this.distributedPlanningTime = requireNonNull(distributedPlanningTime, "distributedPlanningTime is null");
-        this.totalPlanningTime = requireNonNull(totalPlanningTime, "totalPlanningTime is null");
+        this.planningTime = requireNonNull(planningTime, "planningTime is null");
         this.finishingTime = requireNonNull(finishingTime, "finishingTime is null");
 
         checkArgument(totalTasks >= 0, "totalTasks is negative");
@@ -222,6 +221,7 @@ public class QueryStats
         this.physicalInputDataSize = requireNonNull(physicalInputDataSize, "physicalInputDataSize is null");
         checkArgument(physicalInputPositions >= 0, "physicalInputPositions is negative");
         this.physicalInputPositions = physicalInputPositions;
+        this.physicalInputReadTime = requireNonNull(physicalInputReadTime, "physicalInputReadTime is null");
 
         this.internalNetworkInputDataSize = requireNonNull(internalNetworkInputDataSize, "internalNetworkInputDataSize is null");
         checkArgument(internalNetworkInputPositions >= 0, "internalNetworkInputPositions is negative");
@@ -308,15 +308,9 @@ public class QueryStats
     }
 
     @JsonProperty
-    public Duration getDistributedPlanningTime()
+    public Duration getPlanningTime()
     {
-        return distributedPlanningTime;
-    }
-
-    @JsonProperty
-    public Duration getTotalPlanningTime()
-    {
-        return totalPlanningTime;
+        return planningTime;
     }
 
     @JsonProperty
@@ -479,6 +473,12 @@ public class QueryStats
     public long getPhysicalInputPositions()
     {
         return physicalInputPositions;
+    }
+
+    @JsonProperty
+    public Duration getPhysicalInputReadTime()
+    {
+        return physicalInputReadTime;
     }
 
     @JsonProperty

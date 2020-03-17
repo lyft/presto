@@ -20,9 +20,11 @@ import io.prestosql.dispatcher.DispatchManager;
 import io.prestosql.execution.TestingSessionContext;
 import io.prestosql.metadata.MetadataManager;
 import io.prestosql.server.BasicQueryInfo;
+import io.prestosql.server.protocol.Slug;
 import io.prestosql.spi.Plugin;
 import io.prestosql.spi.QueryId;
 import io.prestosql.spi.connector.ConnectorFactory;
+import io.prestosql.testing.DistributedQueryRunner;
 import io.prestosql.tests.tpch.TpchQueryRunnerBuilder;
 import io.prestosql.transaction.TransactionBuilder;
 import org.intellij.lang.annotations.Language;
@@ -66,9 +68,6 @@ public class TestMetadataManager
                             throw new UnsupportedOperationException();
                         })
                         .withGetViews((session, prefix) -> ImmutableMap.of())
-                        .withGetColumnHandles((session, tableHandle) -> {
-                            throw new UnsupportedOperationException();
-                        })
                         .build();
                 return ImmutableList.of(connectorFactory);
             }
@@ -91,7 +90,7 @@ public class TestMetadataManager
         @Language("SQL") String sql = "SELECT * FROM nation";
         queryRunner.execute(sql);
 
-        assertEquals(metadataManager.getCatalogsByQueryId().size(), 0);
+        assertEquals(metadataManager.getActiveQueryIds().size(), 0);
     }
 
     @Test
@@ -106,7 +105,7 @@ public class TestMetadataManager
             // query should fail
         }
 
-        assertEquals(metadataManager.getCatalogsByQueryId().size(), 0);
+        assertEquals(metadataManager.getActiveQueryIds().size(), 0);
     }
 
     @Test
@@ -117,7 +116,7 @@ public class TestMetadataManager
         QueryId queryId = dispatchManager.createQueryId();
         dispatchManager.createQuery(
                 queryId,
-                "slug",
+                Slug.createNew(),
                 new TestingSessionContext(TEST_SESSION),
                 "SELECT * FROM lineitem")
                 .get();
@@ -137,7 +136,7 @@ public class TestMetadataManager
 
         // cancel query
         dispatchManager.cancelQuery(queryId);
-        assertEquals(metadataManager.getCatalogsByQueryId().size(), 0);
+        assertEquals(metadataManager.getActiveQueryIds().size(), 0);
     }
 
     @Test

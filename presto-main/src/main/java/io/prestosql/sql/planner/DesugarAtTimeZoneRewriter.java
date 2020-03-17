@@ -32,9 +32,10 @@ import static io.prestosql.spi.type.TimeType.TIME;
 import static io.prestosql.spi.type.TimeWithTimeZoneType.TIME_WITH_TIME_ZONE;
 import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
 import static io.prestosql.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
+import static io.prestosql.sql.analyzer.TypeSignatureTranslator.toSqlType;
 import static java.util.Objects.requireNonNull;
 
-public class DesugarAtTimeZoneRewriter
+public final class DesugarAtTimeZoneRewriter
 {
     public static Expression rewrite(Expression expression, Map<NodeRef<Expression>, Type> expressionTypes, Metadata metadata)
     {
@@ -76,11 +77,11 @@ public class DesugarAtTimeZoneRewriter
 
             if (valueType.equals(TIME)) {
                 valueType = TIME_WITH_TIME_ZONE;
-                value = new Cast(value, TIME_WITH_TIME_ZONE.getDisplayName());
+                value = new Cast(value, toSqlType(valueType));
             }
             else if (valueType.equals(TIMESTAMP)) {
                 valueType = TIMESTAMP_WITH_TIME_ZONE;
-                value = new Cast(value, TIMESTAMP_WITH_TIME_ZONE.getDisplayName());
+                value = new Cast(value, toSqlType(TIMESTAMP_WITH_TIME_ZONE));
             }
 
             Type timeZoneType = getType(node.getTimeZone());

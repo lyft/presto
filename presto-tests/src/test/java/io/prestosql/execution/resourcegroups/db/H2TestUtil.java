@@ -28,7 +28,7 @@ import io.prestosql.plugin.resourcegroups.db.H2ResourceGroupsDao;
 import io.prestosql.plugin.tpch.TpchPlugin;
 import io.prestosql.spi.Plugin;
 import io.prestosql.spi.PrestoException;
-import io.prestosql.tests.DistributedQueryRunner;
+import io.prestosql.testing.DistributedQueryRunner;
 
 import java.util.List;
 import java.util.Random;
@@ -42,7 +42,7 @@ import static io.prestosql.spi.resourcegroups.QueryType.EXPLAIN;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
-class H2TestUtil
+final class H2TestUtil
 {
     private static final String CONFIGURATION_MANAGER_TYPE = "h2";
     public static final String TEST_ENVIRONMENT = "test_environment";

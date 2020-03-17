@@ -24,7 +24,6 @@ import static java.util.Objects.requireNonNull;
 
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
-        include = JsonTypeInfo.As.PROPERTY,
         property = "@type")
 @JsonSubTypes({
         @JsonSubTypes.Type(value = OutputNode.class, name = "output"),
@@ -61,7 +60,7 @@ import static java.util.Objects.requireNonNull;
         @JsonSubTypes.Type(value = ExplainAnalyzeNode.class, name = "explainAnalyze"),
         @JsonSubTypes.Type(value = ApplyNode.class, name = "apply"),
         @JsonSubTypes.Type(value = AssignUniqueId.class, name = "assignUniqueId"),
-        @JsonSubTypes.Type(value = LateralJoinNode.class, name = "lateralJoin"),
+        @JsonSubTypes.Type(value = CorrelatedJoinNode.class, name = "correlatedJoin"),
         @JsonSubTypes.Type(value = StatisticsWriterNode.class, name = "statisticsWriterNode"),
 })
 public abstract class PlanNode

@@ -32,9 +32,7 @@ import static java.nio.charset.StandardCharsets.UTF_16BE;
 
 public final class TeradataStringFunctions
 {
-    private TeradataStringFunctions()
-    {
-    }
+    private TeradataStringFunctions() {}
 
     @Description("Returns index of first occurrence of a substring (or 0 if not found)")
     @ScalarFunction("index")
@@ -42,7 +40,6 @@ public final class TeradataStringFunctions
     public static long index(
             @FunctionDependency(
                     name = "strpos",
-                    returnType = StandardTypes.BIGINT,
                     argumentTypes = {StandardTypes.VARCHAR, StandardTypes.VARCHAR})
                     MethodHandle method,
             @SqlType(StandardTypes.VARCHAR) Slice string,
@@ -58,14 +55,13 @@ public final class TeradataStringFunctions
         }
     }
 
-    @Description("suffix starting at given index")
+    @Description("Suffix starting at given index")
     @ScalarFunction
     @LiteralParameters("x")
     @SqlType("varchar(x)")
     public static Slice substring(
             @FunctionDependency(
                     name = "substr",
-                    returnType = "varchar(x)",
                     argumentTypes = {"varchar(x)", StandardTypes.BIGINT})
                     MethodHandle method,
             @SqlType("varchar(x)") Slice utf8,
@@ -81,14 +77,13 @@ public final class TeradataStringFunctions
         }
     }
 
-    @Description("substring of given length starting at an index")
+    @Description("Substring of given length starting at an index")
     @ScalarFunction
     @LiteralParameters("x")
     @SqlType("varchar(x)")
     public static Slice substring(
             @FunctionDependency(
                     name = "substr",
-                    returnType = "varchar(x)",
                     argumentTypes = {"varchar(x)", StandardTypes.BIGINT, StandardTypes.BIGINT})
                     MethodHandle method,
             @SqlType("varchar(x)") Slice utf8,

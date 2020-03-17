@@ -18,6 +18,7 @@ import com.google.inject.Binder;
 import com.google.inject.Key;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
+import com.google.inject.multibindings.OptionalBinder;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.airlift.http.server.HttpServerConfig;
@@ -35,6 +36,7 @@ import io.prestosql.client.NodeVersion;
 import io.prestosql.client.ServerInfo;
 import io.prestosql.connector.ConnectorManager;
 import io.prestosql.connector.system.SystemConnectorModule;
+import io.prestosql.dispatcher.DispatchManager;
 import io.prestosql.event.SplitMonitor;
 import io.prestosql.execution.ExecutionFailureInfo;
 import io.prestosql.execution.ExplainAnalyzeContext;
@@ -51,12 +53,10 @@ import io.prestosql.execution.TaskManagerConfig;
 import io.prestosql.execution.TaskStatus;
 import io.prestosql.execution.executor.MultilevelSplitQueue;
 import io.prestosql.execution.executor.TaskExecutor;
-import io.prestosql.execution.scheduler.FlatNetworkTopology;
-import io.prestosql.execution.scheduler.LegacyNetworkTopology;
-import io.prestosql.execution.scheduler.NetworkTopology;
 import io.prestosql.execution.scheduler.NodeScheduler;
 import io.prestosql.execution.scheduler.NodeSchedulerConfig;
-import io.prestosql.execution.scheduler.NodeSchedulerExporter;
+import io.prestosql.execution.scheduler.TopologyAwareNodeSelectorModule;
+import io.prestosql.execution.scheduler.UniformNodeSelectorModule;
 import io.prestosql.index.IndexManager;
 import io.prestosql.memory.LocalMemoryManager;
 import io.prestosql.memory.LocalMemoryManagerExporter;
@@ -87,13 +87,17 @@ import io.prestosql.operator.LookupJoinOperators;
 import io.prestosql.operator.OperatorStats;
 import io.prestosql.operator.PagesIndex;
 import io.prestosql.operator.index.IndexJoinLookupStats;
+import io.prestosql.server.ExpressionSerialization.ExpressionDeserializer;
+import io.prestosql.server.ExpressionSerialization.ExpressionSerializer;
+import io.prestosql.server.SliceSerialization.SliceDeserializer;
+import io.prestosql.server.SliceSerialization.SliceSerializer;
 import io.prestosql.server.remotetask.HttpLocationFactory;
 import io.prestosql.spi.PageIndexerFactory;
 import io.prestosql.spi.PageSorter;
 import io.prestosql.spi.block.Block;
 import io.prestosql.spi.block.BlockEncodingSerde;
-import io.prestosql.spi.connector.ConnectorSplit;
 import io.prestosql.spi.type.Type;
+import io.prestosql.spi.type.TypeSignature;
 import io.prestosql.spiller.FileSingleStreamSpillerFactory;
 import io.prestosql.spiller.GenericPartitioningSpillerFactory;
 import io.prestosql.spiller.GenericSpillerFactory;
@@ -108,9 +112,6 @@ import io.prestosql.split.PageSinkProvider;
 import io.prestosql.split.PageSourceManager;
 import io.prestosql.split.PageSourceProvider;
 import io.prestosql.split.SplitManager;
-import io.prestosql.sql.Serialization.ExpressionDeserializer;
-import io.prestosql.sql.Serialization.ExpressionSerializer;
-import io.prestosql.sql.Serialization.FunctionCallDeserializer;
 import io.prestosql.sql.SqlEnvironmentConfig;
 import io.prestosql.sql.analyzer.FeaturesConfig;
 import io.prestosql.sql.gen.ExpressionCompiler;
@@ -125,9 +126,9 @@ import io.prestosql.sql.planner.LocalExecutionPlanner;
 import io.prestosql.sql.planner.NodePartitioningManager;
 import io.prestosql.sql.planner.TypeAnalyzer;
 import io.prestosql.sql.tree.Expression;
-import io.prestosql.sql.tree.FunctionCall;
 import io.prestosql.transaction.TransactionManagerConfig;
 import io.prestosql.type.TypeDeserializer;
+import io.prestosql.type.TypeSignatureDeserializer;
 import io.prestosql.util.FinalizerService;
 import io.prestosql.version.EmbedVersion;
 
@@ -150,9 +151,8 @@ import static io.airlift.jaxrs.JaxrsBinder.jaxrsBinder;
 import static io.airlift.json.JsonBinder.jsonBinder;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
-import static io.prestosql.execution.scheduler.NodeSchedulerConfig.NetworkTopologyType.FLAT;
-import static io.prestosql.execution.scheduler.NodeSchedulerConfig.NetworkTopologyType.LEGACY;
-import static java.util.Objects.requireNonNull;
+import static io.prestosql.execution.scheduler.NodeSchedulerConfig.NodeSchedulerPolicy.TOPOLOGY;
+import static io.prestosql.execution.scheduler.NodeSchedulerConfig.NodeSchedulerPolicy.UNIFORM;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -161,14 +161,6 @@ import static org.weakref.jmx.guice.ExportBinder.newExporter;
 public class ServerMainModule
         extends AbstractConfigurationAwareModule
 {
-    private final SqlParserOptions sqlParserOptions;
-
-    public ServerMainModule(SqlParserOptions sqlParserOptions)
-    {
-        requireNonNull(sqlParserOptions, "sqlParserOptions is null");
-        this.sqlParserOptions = SqlParserOptions.copyOf(sqlParserOptions);
-    }
-
     @Override
     protected void setup(Binder binder)
     {
@@ -190,8 +182,9 @@ public class ServerMainModule
         configBinder(binder).bindConfig(FeaturesConfig.class);
 
         binder.bind(SqlParser.class).in(Scopes.SINGLETON);
-        binder.bind(SqlParserOptions.class).toInstance(sqlParserOptions);
+        SqlParserOptions sqlParserOptions = new SqlParserOptions();
         sqlParserOptions.useEnhancedErrorHandler(serverConfig.isEnhancedErrorReporting());
+        binder.bind(SqlParserOptions.class).toInstance(sqlParserOptions);
 
         jaxrsBinder(binder).bind(ThrowableMapper.class);
 
@@ -237,7 +230,6 @@ public class ServerMainModule
         // TODO: remove from NodePartitioningManager and move to CoordinatorModule
         configBinder(binder).bindConfig(NodeSchedulerConfig.class);
         binder.bind(NodeScheduler.class).in(Scopes.SINGLETON);
-        binder.bind(NodeSchedulerExporter.class).in(Scopes.SINGLETON);
         binder.bind(NodeTaskMap.class).in(Scopes.SINGLETON);
         newExporter(binder).export(NodeScheduler.class).withGeneratedName();
 
@@ -245,12 +237,12 @@ public class ServerMainModule
         // TODO: move to CoordinatorModule when NodeScheduler is moved
         install(installModuleIf(
                 NodeSchedulerConfig.class,
-                config -> LEGACY.equalsIgnoreCase(config.getNetworkTopology()),
-                moduleBinder -> moduleBinder.bind(NetworkTopology.class).to(LegacyNetworkTopology.class).in(Scopes.SINGLETON)));
+                config -> UNIFORM == config.getNodeSchedulerPolicy(),
+                new UniformNodeSelectorModule()));
         install(installModuleIf(
                 NodeSchedulerConfig.class,
-                config -> FLAT.equalsIgnoreCase(config.getNetworkTopology()),
-                moduleBinder -> moduleBinder.bind(NetworkTopology.class).to(FlatNetworkTopology.class).in(Scopes.SINGLETON)));
+                config -> TOPOLOGY == config.getNodeSchedulerPolicy(),
+                new TopologyAwareNodeSelectorModule()));
 
         // task execution
         jaxrsBinder(binder).bind(TaskResource.class);
@@ -314,7 +306,7 @@ public class ServerMainModule
                     config.setIdleTimeout(new Duration(30, SECONDS));
                     config.setRequestTimeout(new Duration(10, SECONDS));
                     config.setMaxConnectionsPerServer(250);
-                    config.setMaxContentLength(new DataSize(32, MEGABYTE));
+                    config.setMaxContentLength(DataSize.of(32, MEGABYTE));
                 });
 
         configBinder(binder).bindConfig(ExchangeClientConfig.class);
@@ -350,6 +342,7 @@ public class ServerMainModule
         // type
         binder.bind(TypeAnalyzer.class).in(Scopes.SINGLETON);
         jsonBinder(binder).addDeserializerBinding(Type.class).to(TypeDeserializer.class);
+        jsonBinder(binder).addDeserializerBinding(TypeSignature.class).to(TypeSignatureDeserializer.class);
         newSetBinder(binder, Type.class);
 
         // split manager
@@ -370,14 +363,13 @@ public class ServerMainModule
         // system connector
         binder.install(new SystemConnectorModule());
 
-        // splits
-        jsonCodecBinder(binder).bindJsonCodec(TaskUpdateRequest.class);
-        jsonCodecBinder(binder).bindJsonCodec(ConnectorSplit.class);
+        // slice
         jsonBinder(binder).addSerializerBinding(Slice.class).to(SliceSerializer.class);
         jsonBinder(binder).addDeserializerBinding(Slice.class).to(SliceDeserializer.class);
+
+        // expression
         jsonBinder(binder).addSerializerBinding(Expression.class).to(ExpressionSerializer.class);
         jsonBinder(binder).addDeserializerBinding(Expression.class).to(ExpressionDeserializer.class);
-        jsonBinder(binder).addDeserializerBinding(FunctionCall.class).to(FunctionCallDeserializer.class);
 
         // split monitor
         binder.bind(SplitMonitor.class).in(Scopes.SINGLETON);
@@ -429,6 +421,10 @@ public class ServerMainModule
         newExporter(binder).export(SpillerFactory.class).withGeneratedName();
         binder.bind(LocalSpillManager.class).in(Scopes.SINGLETON);
         configBinder(binder).bindConfig(NodeSpillConfig.class);
+
+        // dispatcher
+        // TODO remove dispatcher fromm ServerMainModule, and bind dependent components only on coordinators
+        OptionalBinder.newOptionalBinder(binder, DispatchManager.class);
 
         // cleanup
         binder.bind(ExecutorCleanup.class).in(Scopes.SINGLETON);

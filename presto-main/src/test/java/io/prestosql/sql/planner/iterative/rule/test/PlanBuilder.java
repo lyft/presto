@@ -22,7 +22,7 @@ import com.google.common.collect.Maps;
 import io.prestosql.connector.CatalogName;
 import io.prestosql.metadata.IndexHandle;
 import io.prestosql.metadata.Metadata;
-import io.prestosql.metadata.Signature;
+import io.prestosql.metadata.ResolvedFunction;
 import io.prestosql.metadata.TableHandle;
 import io.prestosql.spi.block.SortOrder;
 import io.prestosql.spi.connector.ColumnHandle;
@@ -31,6 +31,7 @@ import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.type.Type;
 import io.prestosql.sql.ExpressionUtils;
 import io.prestosql.sql.analyzer.TypeSignatureProvider;
+import io.prestosql.sql.parser.ParsingOptions;
 import io.prestosql.sql.parser.SqlParser;
 import io.prestosql.sql.planner.OrderingScheme;
 import io.prestosql.sql.planner.Partitioning;
@@ -47,6 +48,7 @@ import io.prestosql.sql.planner.plan.AggregationNode.Step;
 import io.prestosql.sql.planner.plan.ApplyNode;
 import io.prestosql.sql.planner.plan.AssignUniqueId;
 import io.prestosql.sql.planner.plan.Assignments;
+import io.prestosql.sql.planner.plan.CorrelatedJoinNode;
 import io.prestosql.sql.planner.plan.DeleteNode;
 import io.prestosql.sql.planner.plan.DistinctLimitNode;
 import io.prestosql.sql.planner.plan.EnforceSingleRowNode;
@@ -57,7 +59,6 @@ import io.prestosql.sql.planner.plan.IndexJoinNode;
 import io.prestosql.sql.planner.plan.IndexSourceNode;
 import io.prestosql.sql.planner.plan.IntersectNode;
 import io.prestosql.sql.planner.plan.JoinNode;
-import io.prestosql.sql.planner.plan.LateralJoinNode;
 import io.prestosql.sql.planner.plan.LimitNode;
 import io.prestosql.sql.planner.plan.MarkDistinctNode;
 import io.prestosql.sql.planner.plan.OffsetNode;
@@ -332,9 +333,9 @@ public class PlanBuilder
         {
             checkArgument(expression instanceof FunctionCall);
             FunctionCall aggregation = (FunctionCall) expression;
-            Signature signature = metadata.resolveFunction(aggregation.getName(), TypeSignatureProvider.fromTypes(inputTypes));
+            ResolvedFunction resolvedFunction = metadata.resolveFunction(aggregation.getName(), TypeSignatureProvider.fromTypes(inputTypes));
             return addAggregation(output, new Aggregation(
-                    signature,
+                    resolvedFunction,
                     aggregation.getArguments(),
                     aggregation.isDistinct(),
                     aggregation.getFilter().map(Symbol::from),
@@ -418,15 +419,15 @@ public class PlanBuilder
         return new AssignUniqueId(idAllocator.getNextId(), source, unique);
     }
 
-    public LateralJoinNode lateral(List<Symbol> correlation, PlanNode input, PlanNode subquery)
+    public CorrelatedJoinNode correlatedJoin(List<Symbol> correlation, PlanNode input, PlanNode subquery)
     {
-        return lateral(correlation, input, LateralJoinNode.Type.INNER, TRUE_LITERAL, subquery);
+        return correlatedJoin(correlation, input, CorrelatedJoinNode.Type.INNER, TRUE_LITERAL, subquery);
     }
 
-    public LateralJoinNode lateral(List<Symbol> correlation, PlanNode input, LateralJoinNode.Type type, Expression filter, PlanNode subquery)
+    public CorrelatedJoinNode correlatedJoin(List<Symbol> correlation, PlanNode input, CorrelatedJoinNode.Type type, Expression filter, PlanNode subquery)
     {
         NullLiteral originSubquery = new NullLiteral(); // does not matter for tests
-        return new LateralJoinNode(idAllocator.getNextId(), input, subquery, correlation, type, filter, originSubquery);
+        return new CorrelatedJoinNode(idAllocator.getNextId(), input, subquery, correlation, type, filter, originSubquery);
     }
 
     public TableScanNode tableScan(List<Symbol> symbols, Map<Symbol, ColumnHandle> assignments)
@@ -717,7 +718,7 @@ public class PlanBuilder
             Optional<JoinNode.DistributionType> distributionType,
             Map<String, Symbol> dynamicFilters)
     {
-        return new JoinNode(idAllocator.getNextId(), type, left, right, criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType, Optional.empty(), dynamicFilters);
+        return new JoinNode(idAllocator.getNextId(), type, left, right, criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType, Optional.empty(), dynamicFilters, Optional.empty());
     }
 
     public PlanNode indexJoin(IndexJoinNode.Type type, TableScanNode probe, TableScanNode index)
@@ -828,7 +829,7 @@ public class PlanBuilder
 
     public static Expression expression(String sql)
     {
-        return ExpressionUtils.rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(sql));
+        return ExpressionUtils.rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(sql, new ParsingOptions()));
     }
 
     public static List<Expression> expressions(String... expressions)

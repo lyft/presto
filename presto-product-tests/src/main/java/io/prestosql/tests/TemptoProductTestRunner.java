@@ -16,7 +16,7 @@ package io.prestosql.tests;
 import io.prestosql.tempto.runner.TemptoRunner;
 import io.prestosql.tempto.runner.TemptoRunnerCommandLineParser;
 
-public class TemptoProductTestRunner
+public final class TemptoProductTestRunner
 {
     public static void main(String[] args)
     {
@@ -25,6 +25,10 @@ public class TemptoProductTestRunner
                 .setExcludedGroups("quarantine", true)
                 .build();
         TemptoRunner.runTempto(parser, args);
+
+        // Some libraries (e.g. apparently Datastax's Cassandra driver) can start non-daemon threads.
+        // Explicit exit() is required to terminate test process.
+        System.exit(0);
     }
 
     private TemptoProductTestRunner() {}

@@ -35,7 +35,9 @@ public class HiveS3Config
     private String s3AwsAccessKey;
     private String s3AwsSecretKey;
     private String s3Endpoint;
+    private PrestoS3StorageClass s3StorageClass = PrestoS3StorageClass.STANDARD;
     private PrestoS3SignerType s3SignerType;
+    private String s3SignerClass;
     private boolean s3PathStyleAccess;
     private boolean s3UseInstanceCredentials = true;
     private String s3IamRole;
@@ -53,12 +55,13 @@ public class HiveS3Config
     private Duration s3SocketTimeout = new Duration(5, TimeUnit.SECONDS);
     private int s3MaxConnections = 500;
     private File s3StagingDirectory = new File(StandardSystemProperty.JAVA_IO_TMPDIR.value());
-    private DataSize s3MultipartMinFileSize = new DataSize(16, MEGABYTE);
-    private DataSize s3MultipartMinPartSize = new DataSize(5, MEGABYTE);
+    private DataSize s3MultipartMinFileSize = DataSize.of(16, MEGABYTE);
+    private DataSize s3MultipartMinPartSize = DataSize.of(5, MEGABYTE);
     private boolean pinS3ClientToCurrentRegion;
     private String s3UserAgentPrefix = "";
     private PrestoS3AclType s3AclType = PrestoS3AclType.PRIVATE;
     private boolean skipGlacierObjects;
+    private boolean requesterPaysEnabled;
 
     public String getS3AwsAccessKey()
     {
@@ -97,6 +100,20 @@ public class HiveS3Config
         return this;
     }
 
+    @NotNull
+    public PrestoS3StorageClass getS3StorageClass()
+    {
+        return s3StorageClass;
+    }
+
+    @Config("hive.s3.storage-class")
+    @ConfigDescription("AWS S3 storage class to use when writing the data")
+    public HiveS3Config setS3StorageClass(PrestoS3StorageClass s3StorageClass)
+    {
+        this.s3StorageClass = s3StorageClass;
+        return this;
+    }
+
     public PrestoS3SignerType getS3SignerType()
     {
         return s3SignerType;
@@ -106,6 +123,18 @@ public class HiveS3Config
     public HiveS3Config setS3SignerType(PrestoS3SignerType s3SignerType)
     {
         this.s3SignerType = s3SignerType;
+        return this;
+    }
+
+    public String getS3SignerClass()
+    {
+        return s3SignerClass;
+    }
+
+    @Config("hive.s3.signer-class")
+    public HiveS3Config setS3SignerClass(String s3SignerClass)
+    {
+        this.s3SignerClass = s3SignerClass;
         return this;
     }
 
@@ -414,6 +443,18 @@ public class HiveS3Config
     public HiveS3Config setSkipGlacierObjects(boolean skipGlacierObjects)
     {
         this.skipGlacierObjects = skipGlacierObjects;
+        return this;
+    }
+
+    public boolean isRequesterPaysEnabled()
+    {
+        return requesterPaysEnabled;
+    }
+
+    @Config("hive.s3.requester-pays.enabled")
+    public HiveS3Config setRequesterPaysEnabled(boolean requesterPaysEnabled)
+    {
+        this.requesterPaysEnabled = requesterPaysEnabled;
         return this;
     }
 }
