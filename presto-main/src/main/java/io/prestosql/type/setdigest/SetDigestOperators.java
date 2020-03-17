@@ -27,7 +27,9 @@ import static io.prestosql.spi.function.OperatorType.CAST;
 
 public final class SetDigestOperators
 {
-    private SetDigestOperators() {}
+    private SetDigestOperators()
+    {
+    }
 
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.VARBINARY)

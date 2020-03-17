@@ -59,7 +59,9 @@ import static java.lang.String.format;
 
 public final class BigintOperators
 {
-    private BigintOperators() {}
+    private BigintOperators()
+    {
+    }
 
     @ScalarOperator(ADD)
     @SqlType(StandardTypes.BIGINT)
@@ -282,7 +284,7 @@ public final class BigintOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static final class BigintDistinctFromOperator
+    public static class BigintDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

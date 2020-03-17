@@ -18,7 +18,6 @@ import com.google.common.collect.ImmutableSet;
 import io.prestosql.Session;
 import io.prestosql.spi.connector.CatalogSchemaTableName;
 import io.prestosql.sql.planner.planprinter.IoPlanPrinter;
-import io.prestosql.sql.planner.planprinter.IoPlanPrinter.EstimatedStatsAndCost;
 import io.prestosql.testing.MaterializedResult;
 import io.prestosql.tests.tpch.TpchQueryRunnerBuilder;
 import org.intellij.lang.annotations.Language;
@@ -47,8 +46,6 @@ public class TestTpchDistributedQueries
     {
         String query = "SELECT * FROM orders";
         MaterializedResult result = computeActual("EXPLAIN (TYPE IO, FORMAT JSON) " + query);
-        EstimatedStatsAndCost scanEstimate = new EstimatedStatsAndCost(15000.0, 1597294.0, 1597294.0, 0.0, 0.0);
-        EstimatedStatsAndCost totalEstimate = new EstimatedStatsAndCost(15000.0, 1597294.0, 1597294.0, 0.0, 1597294.0);
         IoPlanPrinter.IoPlan.TableColumnInfo input = new IoPlanPrinter.IoPlan.TableColumnInfo(
                 new CatalogSchemaTableName("tpch", "sf0.01", "orders"),
                 ImmutableSet.of(
@@ -66,11 +63,10 @@ public class TestTpchDistributedQueries
                                                         new IoPlanPrinter.FormattedMarker(Optional.of("O"), EXACTLY)),
                                                 new IoPlanPrinter.FormattedRange(
                                                         new IoPlanPrinter.FormattedMarker(Optional.of("P"), EXACTLY),
-                                                        new IoPlanPrinter.FormattedMarker(Optional.of("P"), EXACTLY)))))),
-                scanEstimate);
+                                                        new IoPlanPrinter.FormattedMarker(Optional.of("P"), EXACTLY)))))));
         assertEquals(
                 jsonCodec(IoPlanPrinter.IoPlan.class).fromJson((String) getOnlyElement(result.getOnlyColumnAsSet())),
-                new IoPlanPrinter.IoPlan(ImmutableSet.of(input), Optional.empty(), totalEstimate));
+                new IoPlanPrinter.IoPlan(ImmutableSet.of(input), Optional.empty()));
     }
 
     @Test

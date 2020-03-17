@@ -29,7 +29,6 @@ import io.prestosql.hadoop.TextLineLengthLimitExceededException;
 import io.prestosql.plugin.hive.avro.PrestoAvroSerDe;
 import io.prestosql.plugin.hive.metastore.Column;
 import io.prestosql.plugin.hive.metastore.Table;
-import io.prestosql.plugin.hive.util.ConfigurationUtils;
 import io.prestosql.plugin.hive.util.FooterAwareRecordReader;
 import io.prestosql.spi.ErrorCodeSupplier;
 import io.prestosql.spi.PrestoException;
@@ -101,7 +100,6 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.filter;
 import static com.google.common.collect.Lists.newArrayList;
 import static com.google.common.collect.Lists.transform;
-import static io.prestosql.plugin.hive.HiveBucketing.isHiveBucketingV1;
 import static io.prestosql.plugin.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
 import static io.prestosql.plugin.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static io.prestosql.plugin.hive.HiveColumnHandle.bucketColumnHandle;
@@ -207,7 +205,6 @@ public final class HiveUtil
         List<Integer> readHiveColumnIndexes = ImmutableList.copyOf(transform(readColumns, HiveColumnHandle::getHiveColumnIndex));
 
         // Tell hive the columns we would like to read, this lets hive optimize reading column oriented files
-        configuration = ConfigurationUtils.copy(configuration);
         setReadColumns(configuration, readHiveColumnIndexes);
 
         InputFormat<?, ?> inputFormat = getInputFormat(configuration, schema, true);
@@ -290,7 +287,7 @@ public final class HiveUtil
             JobConf jobConf = toJobConf(configuration);
 
             Class<? extends InputFormat<?, ?>> inputFormatClass = getInputFormatClass(jobConf, inputFormatName);
-            if (symlinkTarget && inputFormatClass == SymlinkTextInputFormat.class) {
+            if (symlinkTarget && (inputFormatClass == SymlinkTextInputFormat.class)) {
                 // symlink targets are always TextInputFormat
                 inputFormatClass = TextInputFormat.class;
             }
@@ -835,7 +832,7 @@ public final class HiveUtil
 
         // add hidden columns
         columns.add(pathColumnHandle());
-        if (table.getStorage().getBucketProperty().isPresent() && isHiveBucketingV1(table)) {
+        if (table.getStorage().getBucketProperty().isPresent()) {
             columns.add(bucketColumnHandle());
         }
 

@@ -22,9 +22,9 @@ import io.prestosql.sql.analyzer.Analysis;
 import io.prestosql.sql.planner.plan.AggregationNode;
 import io.prestosql.sql.planner.plan.ApplyNode;
 import io.prestosql.sql.planner.plan.Assignments;
-import io.prestosql.sql.planner.plan.CorrelatedJoinNode;
 import io.prestosql.sql.planner.plan.EnforceSingleRowNode;
 import io.prestosql.sql.planner.plan.FilterNode;
+import io.prestosql.sql.planner.plan.LateralJoinNode;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.ProjectNode;
 import io.prestosql.sql.planner.plan.SimplePlanRewriter;
@@ -122,7 +122,7 @@ class SubqueryPlanner
     private PlanBuilder handleSubqueries(PlanBuilder builder, Expression expression, Node node, boolean correlationAllowed)
     {
         builder = appendInPredicateApplyNodes(builder, collectInPredicateSubqueries(expression, node), correlationAllowed, node);
-        builder = appendScalarSubqueryLateralJoins(builder, collectScalarSubqueries(expression, node), correlationAllowed);
+        builder = appendScalarSubqueryApplyNodes(builder, collectScalarSubqueries(expression, node), correlationAllowed);
         builder = appendExistsSubqueryApplyNodes(builder, collectExistsSubqueries(expression, node), correlationAllowed);
         builder = appendQuantifiedComparisonApplyNodes(builder, collectQuantifiedComparisonSubqueries(expression, node), correlationAllowed, node);
         return builder;
@@ -196,7 +196,7 @@ class SubqueryPlanner
         return appendApplyNode(subPlan, inPredicate, subqueryPlan.getRoot(), Assignments.of(inPredicateSubquerySymbol, inPredicateSubqueryExpression), correlationAllowed);
     }
 
-    private PlanBuilder appendScalarSubqueryLateralJoins(PlanBuilder builder, Set<SubqueryExpression> scalarSubqueries, boolean correlationAllowed)
+    private PlanBuilder appendScalarSubqueryApplyNodes(PlanBuilder builder, Set<SubqueryExpression> scalarSubqueries, boolean correlationAllowed)
     {
         for (SubqueryExpression scalarSubquery : scalarSubqueries) {
             builder = appendScalarSubqueryApplyNode(builder, scalarSubquery, correlationAllowed);
@@ -227,10 +227,10 @@ class SubqueryPlanner
         }
 
         // The subquery's EnforceSingleRowNode always produces a row, so the join is effectively INNER
-        return appendCorrelatedJoin(subPlan, subqueryPlan, scalarSubquery.getQuery(), correlationAllowed, CorrelatedJoinNode.Type.INNER, TRUE_LITERAL);
+        return appendLateralJoin(subPlan, subqueryPlan, scalarSubquery.getQuery(), correlationAllowed, LateralJoinNode.Type.INNER, TRUE_LITERAL);
     }
 
-    public PlanBuilder appendCorrelatedJoin(PlanBuilder subPlan, PlanBuilder subqueryPlan, Query query, boolean correlationAllowed, CorrelatedJoinNode.Type type, Expression filterCondition)
+    public PlanBuilder appendLateralJoin(PlanBuilder subPlan, PlanBuilder subqueryPlan, Query query, boolean correlationAllowed, LateralJoinNode.Type type, Expression filterCondition)
     {
         PlanNode subqueryNode = subqueryPlan.getRoot();
         Map<Expression, Expression> correlation = extractCorrelation(subPlan, subqueryNode);
@@ -241,14 +241,15 @@ class SubqueryPlanner
 
         return new PlanBuilder(
                 subPlan.copyTranslations(),
-                new CorrelatedJoinNode(
+                new LateralJoinNode(
                         idAllocator.getNextId(),
                         subPlan.getRoot(),
                         subqueryNode,
                         ImmutableList.copyOf(SymbolsExtractor.extractUnique(correlation.values())),
                         type,
                         filterCondition,
-                        query));
+                        query),
+                analysis.getParameters());
     }
 
     private PlanBuilder appendExistsSubqueryApplyNodes(PlanBuilder builder, Set<ExistsPredicate> existsPredicates, boolean correlationAllowed)
@@ -446,7 +447,8 @@ class SubqueryPlanner
                         subqueryNode,
                         subqueryAssignments,
                         ImmutableList.copyOf(SymbolsExtractor.extractUnique(correlation.values())),
-                        subquery));
+                        subquery),
+                analysis.getParameters());
     }
 
     private Map<Expression, Expression> extractCorrelation(PlanBuilder subPlan, PlanNode subquery)
@@ -488,7 +490,7 @@ class SubqueryPlanner
             translations.put((Expression) node, getOnlyElement(relationPlan.getFieldMappings()));
         }
 
-        return new PlanBuilder(translations, relationPlan.getRoot());
+        return new PlanBuilder(translations, relationPlan.getRoot(), analysis.getParameters());
     }
 
     /**

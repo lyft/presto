@@ -75,7 +75,7 @@ public class TestBlockAndPositionNullConvention
     }
 
     @ScalarFunction("test_block_position")
-    public static final class FunctionWithBlockAndPositionConvention
+    public static class FunctionWithBlockAndPositionConvention
     {
         private static final AtomicBoolean hitBlockPositionBigint = new AtomicBoolean();
         private static final AtomicBoolean hitBlockPositionDouble = new AtomicBoolean();

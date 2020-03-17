@@ -43,7 +43,9 @@ import static java.lang.String.format;
 
 public final class JoniRegexpFunctions
 {
-    private JoniRegexpFunctions() {}
+    private JoniRegexpFunctions()
+    {
+    }
 
     @Description("returns whether the pattern is contained within the string")
     @ScalarFunction

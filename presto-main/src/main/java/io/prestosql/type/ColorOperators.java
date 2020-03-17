@@ -31,7 +31,9 @@ import static io.prestosql.type.ColorType.COLOR;
 
 public final class ColorOperators
 {
-    private ColorOperators() {}
+    private ColorOperators()
+    {
+    }
 
     @ScalarOperator(EQUAL)
     @SqlType(StandardTypes.BOOLEAN)
@@ -57,7 +59,7 @@ public final class ColorOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static final class ColorDistinctFromOperator
+    public static class ColorDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

@@ -251,7 +251,7 @@ public final class RealOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static final class RealDistinctFromOperator
+    public static class RealDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

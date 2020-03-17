@@ -30,7 +30,7 @@ import static io.prestosql.operator.aggregation.AggregationUtils.updateRegressio
 import static io.prestosql.spi.type.DoubleType.DOUBLE;
 
 @AggregationFunction
-public final class DoubleRegressionAggregation
+public class DoubleRegressionAggregation
 {
     private DoubleRegressionAggregation() {}
 

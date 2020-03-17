@@ -15,8 +15,8 @@ package io.prestosql.connector.system;
 
 import com.google.common.collect.ImmutableList;
 import io.prestosql.annotation.UsedByGeneratedCode;
-import io.prestosql.dispatcher.DispatchManager;
-import io.prestosql.dispatcher.DispatchQuery;
+import io.prestosql.execution.QueryManager;
+import io.prestosql.execution.QueryState;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.QueryId;
 import io.prestosql.spi.procedure.Procedure;
@@ -26,9 +26,7 @@ import javax.inject.Inject;
 
 import java.lang.invoke.MethodHandle;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static io.prestosql.spi.StandardErrorCode.ADMINISTRATIVELY_KILLED;
 import static io.prestosql.spi.StandardErrorCode.ADMINISTRATIVELY_PREEMPTED;
@@ -43,12 +41,12 @@ public class KillQueryProcedure
 {
     private static final MethodHandle KILL_QUERY = methodHandle(KillQueryProcedure.class, "killQuery", String.class, String.class);
 
-    private final Optional<DispatchManager> dispatchManager;
+    private final QueryManager queryManager;
 
     @Inject
-    public KillQueryProcedure(Optional<DispatchManager> dispatchManager)
+    public KillQueryProcedure(QueryManager queryManager)
     {
-        this.dispatchManager = requireNonNull(dispatchManager, "dispatchManager is null");
+        this.queryManager = requireNonNull(queryManager, "queryManager is null");
     }
 
     @UsedByGeneratedCode
@@ -57,19 +55,17 @@ public class KillQueryProcedure
         QueryId query = parseQueryId(queryId);
 
         try {
-            checkState(dispatchManager.isPresent(), "No dispatch manager is set. kill_query procedure should be executed on coordinator.");
-            DispatchQuery dispatchQuery = dispatchManager.get().getQuery(query);
+            QueryState state = queryManager.getQueryState(query);
 
             // check before killing to provide the proper error message (this is racy)
-            if (dispatchQuery.isDone()) {
+            if (state.isDone()) {
                 throw new PrestoException(NOT_SUPPORTED, "Target query is not running: " + queryId);
             }
 
-            dispatchQuery.fail(createKillQueryException(message));
+            queryManager.failQuery(query, createKillQueryException(message));
 
             // verify if the query was killed (if not, we lost the race)
-            checkState(dispatchQuery.isDone(), "Failure to fail the query: %s", query);
-            if (!ADMINISTRATIVELY_KILLED.toErrorCode().equals(dispatchQuery.getErrorCode().orElse(null))) {
+            if (!ADMINISTRATIVELY_KILLED.toErrorCode().equals(queryManager.getQueryInfo(query).getErrorCode())) {
                 throw new PrestoException(NOT_SUPPORTED, "Target query is not running: " + queryId);
             }
         }

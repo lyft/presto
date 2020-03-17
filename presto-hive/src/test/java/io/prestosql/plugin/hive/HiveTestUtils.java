@@ -55,7 +55,9 @@ import static java.util.stream.Collectors.toList;
 
 public final class HiveTestUtils
 {
-    private HiveTestUtils() {}
+    private HiveTestUtils()
+    {
+    }
 
     public static final ConnectorSession SESSION = new TestingConnectorSession(
             new HiveSessionProperties(new HiveConfig(), new OrcFileWriterConfig(), new ParquetFileWriterConfig()).getSessionProperties());

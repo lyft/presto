@@ -321,19 +321,8 @@ public class WorkProcessorPipelineSourceOperator
                         succinctBytes(context.peakTotalMemoryReservation.get()),
                         new DataSize(0, BYTE),
                         operatorContext.isWaitingForMemory().isDone() ? Optional.empty() : Optional.of(WAITING_FOR_MEMORY),
-                        getOperatorInfo(context)))
+                        null))
                 .collect(toImmutableList());
-    }
-
-    @Nullable
-    private OperatorInfo getOperatorInfo(WorkProcessorOperatorContext context)
-    {
-        WorkProcessorOperator operator = context.operator;
-        if (operator != null) {
-            return operator.getOperatorInfo().orElse(null);
-        }
-
-        return context.finalOperatorInfo;
     }
 
     @Override
@@ -474,14 +463,13 @@ public class WorkProcessorPipelineSourceOperator
         try {
             for (int i = 0; i <= lastOperatorIndex; ++i) {
                 WorkProcessorOperatorContext workProcessorOperatorContext = workProcessorOperatorContexts.get(i);
-                WorkProcessorOperator operator = workProcessorOperatorContext.operator;
-                if (operator == null) {
+                if (workProcessorOperatorContext.operator == null) {
                     // operator is already closed
                     continue;
                 }
 
                 try {
-                    operator.close();
+                    workProcessorOperatorContext.operator.close();
                 }
                 catch (InterruptedException t) {
                     // don't record the stack
@@ -497,7 +485,6 @@ public class WorkProcessorPipelineSourceOperator
                 }
                 finally {
                     workProcessorOperatorContext.memoryTrackingContext.close();
-                    workProcessorOperatorContext.finalOperatorInfo = operator.getOperatorInfo().orElse(null);
                     workProcessorOperatorContext.operator = null;
                 }
             }
@@ -647,9 +634,7 @@ public class WorkProcessorPipelineSourceOperator
         final AtomicLong peakTotalMemoryReservation = new AtomicLong();
 
         @Nullable
-        volatile WorkProcessorOperator operator;
-        @Nullable
-        volatile OperatorInfo finalOperatorInfo;
+        WorkProcessorOperator operator;
 
         private WorkProcessorOperatorContext(
                 WorkProcessorOperator operator,

@@ -52,7 +52,7 @@ public class SystemConnectorTests
                 "  resource_group_id," +
                 "  queued_time_ms," +
                 "  analysis_time_ms," +
-                "  planning_time_ms," +
+                "  distributed_planning_time_ms," +
                 "  created," +
                 "  started," +
                 "  last_heartbeat," +

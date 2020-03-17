@@ -17,7 +17,7 @@ package io.prestosql.util;
 import java.util.Optional;
 import java.util.function.BinaryOperator;
 
-public final class Optionals
+public class Optionals
 {
     private Optionals() {}
 

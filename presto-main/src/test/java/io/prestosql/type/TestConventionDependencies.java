@@ -58,7 +58,7 @@ public class TestConventionDependencies
     }
 
     @ScalarFunction("regular_convention")
-    public static final class RegularConvention
+    public static class RegularConvention
     {
         @SqlType(StandardTypes.INTEGER)
         public static long testRegularConvention(
@@ -81,7 +81,7 @@ public class TestConventionDependencies
     }
 
     @ScalarFunction("block_position_convention")
-    public static final class BlockPositionConvention
+    public static class BlockPositionConvention
     {
         @SqlType(StandardTypes.INTEGER)
         public static long testBlockPositionConvention(
@@ -108,7 +108,7 @@ public class TestConventionDependencies
     }
 
     @ScalarFunction("add")
-    public static final class Add
+    public static class Add
     {
         @SqlType(StandardTypes.INTEGER)
         public static long add(

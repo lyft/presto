@@ -14,6 +14,7 @@
 package io.prestosql.operator.aggregation;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import io.airlift.bytecode.DynamicClassLoader;
 import io.prestosql.Session;
@@ -24,7 +25,6 @@ import io.prestosql.sql.gen.JoinCompiler;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 public class LazyAccumulatorFactoryBinder
         implements AccumulatorFactoryBinder

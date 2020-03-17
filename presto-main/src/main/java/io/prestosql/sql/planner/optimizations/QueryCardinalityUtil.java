@@ -36,7 +36,9 @@ import static java.util.Objects.requireNonNull;
 
 public final class QueryCardinalityUtil
 {
-    private QueryCardinalityUtil() {}
+    private QueryCardinalityUtil()
+    {
+    }
 
     public static boolean isScalar(PlanNode node)
     {

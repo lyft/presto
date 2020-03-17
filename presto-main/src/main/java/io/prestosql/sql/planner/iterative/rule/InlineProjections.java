@@ -22,7 +22,6 @@ import io.prestosql.sql.planner.Symbol;
 import io.prestosql.sql.planner.SymbolsExtractor;
 import io.prestosql.sql.planner.iterative.Rule;
 import io.prestosql.sql.planner.plan.Assignments;
-import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.ProjectNode;
 import io.prestosql.sql.tree.Expression;
 import io.prestosql.sql.tree.Literal;
@@ -30,7 +29,6 @@ import io.prestosql.sql.tree.TryExpression;
 import io.prestosql.sql.util.AstUtils;
 
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -66,16 +64,9 @@ public class InlineProjections
     {
         ProjectNode child = captures.get(CHILD);
 
-        return inlineProjections(parent, child)
-                .map(Result::ofPlanNode)
-                .orElse(Result.empty());
-    }
-
-    static Optional<ProjectNode> inlineProjections(ProjectNode parent, ProjectNode child)
-    {
-        Set<Symbol> targets = extractInliningTargets(parent, child);
+        Sets.SetView<Symbol> targets = extractInliningTargets(parent, child);
         if (targets.isEmpty()) {
-            return Optional.empty();
+            return Result.empty();
         }
 
         // inline the expressions
@@ -88,6 +79,8 @@ public class InlineProjections
 
         // Synthesize identity assignments for the inputs of expressions that were inlined
         // to place in the child projection.
+        // If all assignments end up becoming identity assignments, they'll get pruned by
+        // other rules
         Set<Symbol> inputs = child.getAssignments()
                 .entrySet().stream()
                 .filter(entry -> targets.contains(entry.getKey()))
@@ -95,36 +88,27 @@ public class InlineProjections
                 .flatMap(entry -> SymbolsExtractor.extractAll(entry).stream())
                 .collect(toSet());
 
-        Assignments.Builder newChildAssignmentsBuilder = Assignments.builder();
+        Assignments.Builder childAssignments = Assignments.builder();
         for (Map.Entry<Symbol, Expression> assignment : child.getAssignments().entrySet()) {
             if (!targets.contains(assignment.getKey())) {
-                newChildAssignmentsBuilder.put(assignment);
+                childAssignments.put(assignment);
             }
         }
         for (Symbol input : inputs) {
-            newChildAssignmentsBuilder.putIdentity(input);
+            childAssignments.putIdentity(input);
         }
 
-        Assignments newChildAssignments = newChildAssignmentsBuilder.build();
-        PlanNode newChild;
-        if (newChildAssignments.isIdentity()) {
-            newChild = child.getSource();
-        }
-        else {
-            newChild = new ProjectNode(
-                    child.getId(),
-                    child.getSource(),
-                    newChildAssignments);
-        }
-
-        return Optional.of(
+        return Result.ofPlanNode(
                 new ProjectNode(
                         parent.getId(),
-                        newChild,
+                        new ProjectNode(
+                                child.getId(),
+                                child.getSource(),
+                                childAssignments.build()),
                         Assignments.copyOf(parentAssignments)));
     }
 
-    private static Expression inlineReferences(Expression expression, Assignments assignments)
+    private Expression inlineReferences(Expression expression, Assignments assignments)
     {
         Function<Symbol, Expression> mapping = symbol -> {
             Expression result = assignments.get(symbol);
@@ -138,7 +122,7 @@ public class InlineProjections
         return inlineSymbols(mapping, expression);
     }
 
-    private static Set<Symbol> extractInliningTargets(ProjectNode parent, ProjectNode child)
+    private Sets.SetView<Symbol> extractInliningTargets(ProjectNode parent, ProjectNode child)
     {
         // candidates for inlining are
         //   1. references to simple constants
@@ -178,7 +162,7 @@ public class InlineProjections
         return Sets.union(singletons, constants);
     }
 
-    private static Set<Symbol> extractTryArguments(Expression expression)
+    private Set<Symbol> extractTryArguments(Expression expression)
     {
         return AstUtils.preOrder(expression)
                 .filter(TryExpression.class::isInstance)

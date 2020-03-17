@@ -173,7 +173,18 @@ public class SqlQueryExecution
             this.stateMachine = requireNonNull(stateMachine, "stateMachine is null");
 
             // analyze query
-            this.analysis = analyze(preparedQuery, stateMachine, metadata, accessControl, sqlParser, queryExplainer, warningCollector);
+            requireNonNull(preparedQuery, "preparedQuery is null");
+            Analyzer analyzer = new Analyzer(
+                    stateMachine.getSession(),
+                    metadata,
+                    sqlParser,
+                    accessControl,
+                    Optional.of(queryExplainer),
+                    preparedQuery.getParameters(),
+                    warningCollector);
+            this.analysis = analyzer.analyze(preparedQuery.getStatement());
+
+            stateMachine.setUpdateType(analysis.getUpdateType());
 
             // when the query finishes cache the final query info, and clear the reference to the output stage
             AtomicReference<SqlQueryScheduler> queryScheduler = this.queryScheduler;
@@ -191,35 +202,6 @@ public class SqlQueryExecution
 
             this.remoteTaskFactory = new MemoryTrackingRemoteTaskFactory(requireNonNull(remoteTaskFactory, "remoteTaskFactory is null"), stateMachine);
         }
-    }
-
-    private Analysis analyze(
-            PreparedQuery preparedQuery,
-            QueryStateMachine stateMachine,
-            Metadata metadata,
-            AccessControl accessControl,
-            SqlParser sqlParser,
-            QueryExplainer queryExplainer,
-            WarningCollector warningCollector)
-    {
-        stateMachine.beginAnalysis();
-
-        requireNonNull(preparedQuery, "preparedQuery is null");
-        Analyzer analyzer = new Analyzer(
-                stateMachine.getSession(),
-                metadata,
-                sqlParser,
-                accessControl,
-                Optional.of(queryExplainer),
-                preparedQuery.getParameters(),
-                warningCollector);
-        Analysis analysis = analyzer.analyze(preparedQuery.getStatement());
-
-        stateMachine.setUpdateType(analysis.getUpdateType());
-
-        stateMachine.endAnalysis();
-
-        return analysis;
     }
 
     @Override
@@ -325,17 +307,21 @@ public class SqlQueryExecution
     {
         try (SetThreadName ignored = new SetThreadName("Query-%s", stateMachine.getQueryId())) {
             try {
+                // transition to planning
                 if (!stateMachine.transitionToPlanning()) {
                     // query already started or finished
                     return;
                 }
 
-                PlanRoot plan = planQuery();
+                // analyze query
+                PlanRoot plan = analyzeQuery();
 
                 metadata.beginQuery(getSession(), plan.getTableHandles());
 
+                // plan distribution of query
                 planDistribution(plan);
 
+                // transition to starting
                 if (!stateMachine.transitionToStarting()) {
                     // query already started or finished
                     return;
@@ -375,18 +361,21 @@ public class SqlQueryExecution
         stateMachine.addQueryInfoStateChangeListener(stateChangeListener);
     }
 
-    private PlanRoot planQuery()
+    private PlanRoot analyzeQuery()
     {
         try {
-            return doPlanQuery();
+            return doAnalyzeQuery();
         }
         catch (StackOverflowError e) {
             throw new PrestoException(NOT_SUPPORTED, "statement is too large (stack overflow during analysis)", e);
         }
     }
 
-    private PlanRoot doPlanQuery()
+    private PlanRoot doAnalyzeQuery()
     {
+        // time analysis phase
+        stateMachine.beginAnalysis();
+
         // plan query
         PlanNodeIdAllocator idAllocator = new PlanNodeIdAllocator();
         LogicalPlanner logicalPlanner = new LogicalPlanner(stateMachine.getSession(), planOptimizers, idAllocator, metadata, new TypeAnalyzer(sqlParser, metadata), statsCalculator, costCalculator, stateMachine.getWarningCollector());
@@ -403,6 +392,9 @@ public class SqlQueryExecution
 
         // fragment the plan
         SubPlan fragmentedPlan = planFragmenter.createSubPlans(stateMachine.getSession(), plan, false, stateMachine.getWarningCollector());
+
+        // record analysis time
+        stateMachine.endAnalysis();
 
         boolean explainAnalyze = analysis.getStatement() instanceof Explain && ((Explain) analysis.getStatement()).isAnalyze();
         return new PlanRoot(fragmentedPlan, !explainAnalyze, extractTableHandles(analysis));
@@ -426,9 +418,13 @@ public class SqlQueryExecution
 
     private void planDistribution(PlanRoot plan)
     {
+        // time distribution planning
+        stateMachine.beginDistributedPlanning();
+
         // plan the execution on the active nodes
         DistributedExecutionPlanner distributedPlanner = new DistributedExecutionPlanner(splitManager, metadata);
         StageExecutionPlan outputStageExecutionPlan = distributedPlanner.plan(plan.getRoot(), stateMachine.getSession());
+        stateMachine.endDistributedPlanning();
 
         // ensure split sources are closed
         stateMachine.addStateChangeListener(state -> {

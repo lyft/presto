@@ -24,7 +24,9 @@ import static java.util.Locale.ENGLISH;
 
 public final class LibSvmUtils
 {
-    private LibSvmUtils() {}
+    private LibSvmUtils()
+    {
+    }
 
     public static svm_parameter parseParameters(String paramString)
     {

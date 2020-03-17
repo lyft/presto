@@ -25,7 +25,7 @@ import java.util.Optional;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 
-public final class NodeUtils
+public class NodeUtils
 {
     private NodeUtils() {}
 

@@ -35,7 +35,9 @@ import static io.prestosql.spi.function.OperatorType.NOT_EQUAL;
 
 public final class UnknownOperators
 {
-    private UnknownOperators() {}
+    private UnknownOperators()
+    {
+    }
 
     @ScalarOperator(EQUAL)
     @SqlType(StandardTypes.BOOLEAN)
@@ -94,7 +96,7 @@ public final class UnknownOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static final class UnknownDistinctFromOperator
+    public static class UnknownDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

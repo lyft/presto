@@ -32,7 +32,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Extract expressions that are free (unbound) references to a lambda argument.
  */
-public final class FreeLambdaReferenceExtractor
+public class FreeLambdaReferenceExtractor
 {
     private FreeLambdaReferenceExtractor() {}
 

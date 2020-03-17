@@ -38,7 +38,9 @@ import static io.prestosql.spi.function.OperatorType.XX_HASH_64;
 
 public final class VarbinaryOperators
 {
-    private VarbinaryOperators() {}
+    private VarbinaryOperators()
+    {
+    }
 
     @ScalarOperator(EQUAL)
     @SqlType(StandardTypes.BOOLEAN)
@@ -102,7 +104,7 @@ public final class VarbinaryOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static final class VarbinaryDistinctFromOperator
+    public static class VarbinaryDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

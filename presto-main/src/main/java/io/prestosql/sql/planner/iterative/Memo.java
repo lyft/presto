@@ -110,10 +110,9 @@ public class Memo
         return resolveGroupReferences(node, Lookup.from(planNode -> Stream.of(this.resolve(planNode))));
     }
 
-    public PlanNode replace(int groupId, PlanNode node, String reason)
+    public PlanNode replace(int group, PlanNode node, String reason)
     {
-        Group group = getGroup(groupId);
-        PlanNode old = group.membership;
+        PlanNode old = getGroup(group).membership;
 
         checkArgument(new HashSet<>(old.getOutputSymbols()).equals(new HashSet<>(node.getOutputSymbols())),
                 "%s: transformed expression doesn't produce same outputs: %s vs %s",
@@ -128,21 +127,21 @@ public class Memo
             node = insertChildrenAndRewrite(node);
         }
 
-        incrementReferenceCounts(node, groupId);
-        group.membership = node;
-        decrementReferenceCounts(old, groupId);
+        incrementReferenceCounts(node, group);
+        getGroup(group).membership = node;
+        decrementReferenceCounts(old, group);
         evictStatisticsAndCost(group);
 
         return node;
     }
 
-    private void evictStatisticsAndCost(Group group)
+    private void evictStatisticsAndCost(int group)
     {
-        group.stats = null;
-        group.cost = null;
-        for (int parentGroup : group.incomingReferences.elementSet()) {
+        getGroup(group).stats = null;
+        getGroup(group).cost = null;
+        for (int parentGroup : getGroup(group).incomingReferences.elementSet()) {
             if (parentGroup != ROOT_GROUP_REF) {
-                evictStatisticsAndCost(getGroup(parentGroup));
+                evictStatisticsAndCost(parentGroup);
             }
         }
     }
@@ -156,7 +155,7 @@ public class Memo
     {
         Group group = getGroup(groupId);
         if (group.stats != null) {
-            evictStatisticsAndCost(group); // cost is derived from stats, also needs eviction
+            evictStatisticsAndCost(groupId); // cost is derived from stats, also needs eviction
         }
         group.stats = requireNonNull(stats, "stats is null");
     }

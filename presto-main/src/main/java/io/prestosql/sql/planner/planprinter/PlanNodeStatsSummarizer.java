@@ -39,7 +39,7 @@ import static io.prestosql.util.MoreMaps.mergeMaps;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.stream.Collectors.toList;
 
-public final class PlanNodeStatsSummarizer
+public class PlanNodeStatsSummarizer
 {
     private PlanNodeStatsSummarizer() {}
 

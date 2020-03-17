@@ -27,7 +27,7 @@ import io.prestosql.sql.planner.plan.TableScanNode;
 import java.util.List;
 import java.util.function.Consumer;
 
-public final class SchedulingOrderVisitor
+public class SchedulingOrderVisitor
 {
     public static List<PlanNodeId> scheduleOrder(PlanNode root)
     {

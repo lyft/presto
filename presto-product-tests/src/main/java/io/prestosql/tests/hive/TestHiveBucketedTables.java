@@ -242,12 +242,8 @@ public class TestHiveBucketedTables
     {
         String tableName = mutableTablesState().get(BUCKETED_NATION).getNameInDatabase();
 
-        query(format("INSERT INTO %s SELECT * FROM %s", tableName, NATION.getName()));
-        // make sure that insert will not overwrite existing data
-        query(format("INSERT INTO %s SELECT * FROM %s", tableName, NATION.getName()));
-
-        assertThat(query(format("SELECT count(*) FROM %s", tableName))).containsExactly(row(50));
-        assertThat(query(format("SELECT count(*) FROM %s WHERE n_regionkey=0", tableName))).containsExactly(row(10));
+        assertThat(() -> query(format("INSERT INTO %s SELECT * FROM %s", tableName, NATION.getName())))
+                .failsWithMessage("Cannot insert into bucketed unpartitioned Hive table");
     }
 
     @Test

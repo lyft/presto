@@ -25,7 +25,7 @@ import io.prestosql.spi.type.BigintType;
 import io.prestosql.spi.type.StandardTypes;
 
 @AggregationFunction("bitwise_or_agg")
-public final class BitwiseOrAggregation
+public class BitwiseOrAggregation
 {
     private BitwiseOrAggregation() {}
 

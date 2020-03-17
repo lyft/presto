@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
-import static com.google.common.io.Files.asCharSource;
 import static java.util.Objects.requireNonNull;
 
 public final class BenchmarkQuery
@@ -46,7 +45,7 @@ public final class BenchmarkQuery
         name = Files.getNameWithoutExtension(file.getName());
 
         // file can have 2 sections separated by a line of equals signs
-        String text = asCharSource(file, StandardCharsets.UTF_8).read();
+        String text = Files.toString(file, StandardCharsets.UTF_8);
         List<String> sections = SECTION_SPLITTER.splitToList(text);
         if (sections.size() == 2) {
             this.tags = ImmutableMap.copyOf(TAGS_SPLITTER.split(sections.get(0)));

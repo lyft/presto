@@ -23,7 +23,6 @@ import io.prestosql.spi.type.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalLong;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.prestosql.spi.type.TypeUtils.writeNativeValue;
@@ -74,7 +73,6 @@ public class InternalTable
         private final List<Type> types;
         private final List<Page> pages;
         private final PageBuilder pageBuilder;
-        private long recordCount;
 
         public Builder(List<String> columnNames, List<Type> types)
         {
@@ -93,7 +91,6 @@ public class InternalTable
 
             pages = new ArrayList<>();
             pageBuilder = new PageBuilder(types);
-            recordCount = 0;
         }
 
         public Builder add(Object... values)
@@ -106,14 +103,7 @@ public class InternalTable
             if (pageBuilder.isFull()) {
                 flushPage();
             }
-
-            recordCount++;
             return this;
-        }
-
-        public boolean atLimit(OptionalLong limit)
-        {
-            return limit.isPresent() && recordCount >= limit.getAsLong();
         }
 
         public InternalTable build()

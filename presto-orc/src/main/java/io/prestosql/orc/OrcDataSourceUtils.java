@@ -28,7 +28,9 @@ import static java.util.Comparator.comparingLong;
 
 public final class OrcDataSourceUtils
 {
-    private OrcDataSourceUtils() {}
+    private OrcDataSourceUtils()
+    {
+    }
 
     /**
      * Merge disk ranges that are closer than {@code maxMergeDistance}.

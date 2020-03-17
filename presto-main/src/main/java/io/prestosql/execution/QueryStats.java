@@ -50,7 +50,8 @@ public class QueryStats
     private final Duration dispatchingTime;
     private final Duration executionTime;
     private final Duration analysisTime;
-    private final Duration planningTime;
+    private final Duration distributedPlanningTime;
+    private final Duration totalPlanningTime;
     private final Duration finishingTime;
 
     private final int totalTasks;
@@ -115,7 +116,8 @@ public class QueryStats
             @JsonProperty("dispatchingTime") Duration dispatchingTime,
             @JsonProperty("executionTime") Duration executionTime,
             @JsonProperty("analysisTime") Duration analysisTime,
-            @JsonProperty("planningTime") Duration planningTime,
+            @JsonProperty("distributedPlanningTime") Duration distributedPlanningTime,
+            @JsonProperty("totalPlanningTime") Duration totalPlanningTime,
             @JsonProperty("finishingTime") Duration finishingTime,
 
             @JsonProperty("totalTasks") int totalTasks,
@@ -178,7 +180,8 @@ public class QueryStats
         this.dispatchingTime = requireNonNull(dispatchingTime, "dispatchingTime is null");
         this.executionTime = requireNonNull(executionTime, "executionTime is null");
         this.analysisTime = requireNonNull(analysisTime, "analysisTime is null");
-        this.planningTime = requireNonNull(planningTime, "planningTime is null");
+        this.distributedPlanningTime = requireNonNull(distributedPlanningTime, "distributedPlanningTime is null");
+        this.totalPlanningTime = requireNonNull(totalPlanningTime, "totalPlanningTime is null");
         this.finishingTime = requireNonNull(finishingTime, "finishingTime is null");
 
         checkArgument(totalTasks >= 0, "totalTasks is negative");
@@ -305,9 +308,15 @@ public class QueryStats
     }
 
     @JsonProperty
-    public Duration getPlanningTime()
+    public Duration getDistributedPlanningTime()
     {
-        return planningTime;
+        return distributedPlanningTime;
+    }
+
+    @JsonProperty
+    public Duration getTotalPlanningTime()
+    {
+        return totalPlanningTime;
     }
 
     @JsonProperty

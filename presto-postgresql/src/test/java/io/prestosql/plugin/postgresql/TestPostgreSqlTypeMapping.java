@@ -114,11 +114,7 @@ public class TestPostgreSqlTypeMapping
 
     private TestPostgreSqlTypeMapping(TestingPostgreSqlServer postgreSqlServer)
     {
-        super(() -> createPostgreSqlQueryRunner(
-                postgreSqlServer,
-                ImmutableMap.of("postgresql.experimental.array-mapping", "AS_ARRAY",
-                                "jdbc-types-mapped-to-varchar", "tsrange, inet"),
-                ImmutableList.of()));
+        super(() -> createPostgreSqlQueryRunner(postgreSqlServer, ImmutableMap.of("postgresql.experimental.array-mapping", "AS_ARRAY"), ImmutableList.of()));
         this.postgreSqlServer = postgreSqlServer;
     }
 
@@ -300,25 +296,6 @@ public class TestPostgreSqlTypeMapping
                 .addRoundTrip(decimalDataType(30, 5), new BigDecimal("-3141592653589793238462643.38327"))
                 .addRoundTrip(decimalDataType(38, 0), new BigDecimal("27182818284590452353602874713526624977"))
                 .addRoundTrip(decimalDataType(38, 0), new BigDecimal("-27182818284590452353602874713526624977"));
-    }
-
-    @Test
-    public void testForcedMappingToVarchar()
-    {
-        JdbcSqlExecutor jdbcSqlExecutor = new JdbcSqlExecutor(postgreSqlServer.getJdbcUrl());
-        jdbcSqlExecutor.execute("CREATE TABLE tpch.test_forced_varchar_mapping(tsrange_col tsrange, inet_col inet, tsrange_arr_col tsrange[], unsupported_nonforced_column tstzrange)");
-        jdbcSqlExecutor.execute("INSERT INTO tpch.test_forced_varchar_mapping(tsrange_col, inet_col, tsrange_arr_col, unsupported_nonforced_column) " +
-                "VALUES ('[2010-01-01 14:30, 2010-01-01 15:30)'::tsrange, '172.0.0.1'::inet, array['[2010-01-01 14:30, 2010-01-01 15:30)'::tsrange], '[2010-01-01 14:30, 2010-01-01 15:30)'::tstzrange)");
-        try {
-            assertQuery(
-                    "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'tpch' AND table_name = 'test_forced_varchar_mapping'",
-                    "VALUES ('tsrange_col','varchar'),('inet_col','varchar'),('tsrange_arr_col','array(varchar)')"); // no 'unsupported_nonforced_column'
-
-            assertQuery("SELECT * FROM tpch.test_forced_varchar_mapping", "VALUES ('[\"2010-01-01 14:30:00\",\"2010-01-01 15:30:00\")','172.0.0.1',ARRAY['[\"2010-01-01 14:30:00\",\"2010-01-01 15:30:00\")'])");
-        }
-        finally {
-            jdbcSqlExecutor.execute("DROP TABLE tpch.test_forced_varchar_mapping");
-        }
     }
 
     @Test
@@ -567,9 +544,14 @@ public class TestPostgreSqlTypeMapping
                     .addRoundTrip(timestampDataType(), timeDoubledInJvmZone)
                     .addRoundTrip(timestampDataType(), timeDoubledInVilnius);
 
-            addTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, epoch); // epoch also is a gap in JVM zone
-            addTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, timeGapInJvmZone1);
-            addTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, timeGapInJvmZone2);
+            if (!insertWithPresto) {
+                // when writing, Postgres JDBC driver converts LocalDateTime to string representing date-time in JVM zone
+                // TODO upgrade driver or find a different way to write timestamp values
+                addTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, epoch); // epoch also is a gap in JVM zone
+                addTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, timeGapInJvmZone1);
+                addTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, timeGapInJvmZone2);
+            }
+
             addTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, timeGapInVilnius);
             addTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, timeGapInKathmandu);
 
@@ -604,12 +586,14 @@ public class TestPostgreSqlTypeMapping
             DataTypeTest tests = DataTypeTest.create()
                     .addRoundTrip(dataType, asList(beforeEpoch))
                     .addRoundTrip(dataType, asList(afterEpoch))
+                    // timeGapInJvmZone is shifted by 1 hour when using java.sql.Timestamp
+                    // Commenting those tests until it will be possible to use java.time.LocalDateTime with org.postgresql.jdbc.PgArray (https://github.com/pgjdbc/pgjdbc/issues/1225#issuecomment-516312324)
+                    //.addRoundTrip(dataType, asList(epoch)) // epoch also is a gap in JVM zone
+                    //.addRoundTrip(dataType, asList(timeGapInJvmZone1))
+                    //.addRoundTrip(dataType, asList(timeGapInJvmZone2))
                     .addRoundTrip(dataType, asList(timeDoubledInJvmZone))
                     .addRoundTrip(dataType, asList(timeDoubledInVilnius));
 
-            addArrayTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, dataType, epoch);
-            addArrayTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, dataType, timeGapInJvmZone1);
-            addArrayTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, dataType, timeGapInJvmZone2);
             addArrayTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, dataType, timeGapInVilnius);
             addArrayTimestampTestIfSupported(tests, legacyTimestamp, sessionZone, dataType, timeGapInKathmandu);
 

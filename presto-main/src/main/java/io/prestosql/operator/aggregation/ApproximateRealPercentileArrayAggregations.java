@@ -34,7 +34,7 @@ import static java.lang.Float.floatToRawIntBits;
 import static java.lang.Float.intBitsToFloat;
 
 @AggregationFunction("approx_percentile")
-public final class ApproximateRealPercentileArrayAggregations
+public class ApproximateRealPercentileArrayAggregations
 {
     private ApproximateRealPercentileArrayAggregations() {}
 

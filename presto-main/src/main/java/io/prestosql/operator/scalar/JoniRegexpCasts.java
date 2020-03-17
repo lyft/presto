@@ -31,7 +31,9 @@ import static io.prestosql.spi.type.Chars.padSpaces;
 
 public final class JoniRegexpCasts
 {
-    private JoniRegexpCasts() {}
+    private JoniRegexpCasts()
+    {
+    }
 
     @LiteralParameters("x")
     @ScalarOperator(OperatorType.CAST)

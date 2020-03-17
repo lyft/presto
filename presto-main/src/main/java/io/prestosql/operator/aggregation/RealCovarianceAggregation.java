@@ -29,7 +29,7 @@ import static io.prestosql.spi.type.RealType.REAL;
 import static java.lang.Float.intBitsToFloat;
 
 @AggregationFunction
-public final class RealCovarianceAggregation
+public class RealCovarianceAggregation
 {
     private RealCovarianceAggregation() {}
 

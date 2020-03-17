@@ -25,7 +25,9 @@ import static io.prestosql.spi.type.BooleanType.BOOLEAN;
 @SuppressWarnings("UnusedDeclaration")
 public final class CompilerOperations
 {
-    private CompilerOperations() {}
+    private CompilerOperations()
+    {
+    }
 
     public static boolean longGreaterThanZero(long value)
     {

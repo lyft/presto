@@ -22,7 +22,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 public final class RowUtil
 {
-    private RowUtil() {}
+    private RowUtil()
+    {
+    }
 
     public static Row createSingleStringRow(String value, int protocolVersion)
     {

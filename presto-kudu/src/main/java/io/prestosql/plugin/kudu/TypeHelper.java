@@ -39,9 +39,11 @@ import java.math.BigDecimal;
 import static java.lang.Float.floatToRawIntBits;
 import static java.lang.Float.intBitsToFloat;
 
-public final class TypeHelper
+public class TypeHelper
 {
-    private TypeHelper() {}
+    private TypeHelper()
+    {
+    }
 
     public static org.apache.kudu.Type toKuduClientType(Type type)
     {

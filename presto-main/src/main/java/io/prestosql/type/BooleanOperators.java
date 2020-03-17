@@ -173,7 +173,7 @@ public final class BooleanOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static final class BooleanDistinctFromOperator
+    public static class BooleanDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

@@ -31,7 +31,6 @@ import io.prestosql.sql.planner.plan.AggregationNode;
 import io.prestosql.sql.planner.plan.AggregationNode.Step;
 import io.prestosql.sql.planner.plan.ApplyNode;
 import io.prestosql.sql.planner.plan.AssignUniqueId;
-import io.prestosql.sql.planner.plan.CorrelatedJoinNode;
 import io.prestosql.sql.planner.plan.EnforceSingleRowNode;
 import io.prestosql.sql.planner.plan.ExceptNode;
 import io.prestosql.sql.planner.plan.ExchangeNode;
@@ -40,6 +39,7 @@ import io.prestosql.sql.planner.plan.GroupIdNode;
 import io.prestosql.sql.planner.plan.IndexSourceNode;
 import io.prestosql.sql.planner.plan.IntersectNode;
 import io.prestosql.sql.planner.plan.JoinNode;
+import io.prestosql.sql.planner.plan.LateralJoinNode;
 import io.prestosql.sql.planner.plan.LimitNode;
 import io.prestosql.sql.planner.plan.MarkDistinctNode;
 import io.prestosql.sql.planner.plan.OffsetNode;
@@ -337,11 +337,6 @@ public final class PlanMatchPattern
         return result;
     }
 
-    public static PlanMatchPattern identityProject(PlanMatchPattern source)
-    {
-        return node(ProjectNode.class, source).with(new IdentityProjectionMatcher());
-    }
-
     public static PlanMatchPattern strictProject(Map<String, ExpressionMatcher> assignments, PlanMatchPattern source)
     {
         /*
@@ -512,7 +507,7 @@ public final class PlanMatchPattern
 
     public static PlanMatchPattern lateral(List<String> correlationSymbolAliases, PlanMatchPattern inputPattern, PlanMatchPattern subqueryPattern)
     {
-        return node(CorrelatedJoinNode.class, inputPattern, subqueryPattern)
+        return node(LateralJoinNode.class, inputPattern, subqueryPattern)
                 .with(new CorrelationMatcher(correlationSymbolAliases));
     }
 

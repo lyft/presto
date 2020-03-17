@@ -90,6 +90,7 @@ import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.PrimitiveIterator;
 import java.util.function.Function;
 
@@ -112,14 +113,14 @@ public final class ExpressionFormatter
         return new Formatter().process(expression, null);
     }
 
-    private static String formatQualifiedName(QualifiedName name)
+    public static String formatQualifiedName(QualifiedName name)
     {
         return name.getParts().stream()
                 .map(ExpressionFormatter::formatIdentifier)
                 .collect(joining("."));
     }
 
-    private static String formatIdentifier(String s)
+    public static String formatIdentifier(String s)
     {
         return '"' + s.replace("\"", "\"\"") + '"';
     }
@@ -505,8 +506,10 @@ public final class ExpressionFormatter
                     .append(" LIKE ")
                     .append(process(node.getPattern(), context));
 
-            node.getEscape().ifPresent(escape -> builder.append(" ESCAPE ")
-                    .append(process(escape, context)));
+            node.getEscape().ifPresent(escape -> {
+                builder.append(" ESCAPE ")
+                        .append(process(escape, context));
+            });
 
             builder.append(')');
 
@@ -516,24 +519,11 @@ public final class ExpressionFormatter
         @Override
         protected String visitAllColumns(AllColumns node, Void context)
         {
-            StringBuilder builder = new StringBuilder();
-            if (node.getTarget().isPresent()) {
-                builder.append(process(node.getTarget().get(), context));
-                builder.append(".*");
-            }
-            else {
-                builder.append("*");
+            if (node.getPrefix().isPresent()) {
+                return node.getPrefix().get() + ".*";
             }
 
-            if (!node.getAliases().isEmpty()) {
-                builder.append(" AS (");
-                Joiner.on(", ").appendTo(builder, node.getAliases().stream()
-                        .map(alias -> process(alias, context))
-                        .collect(toList()));
-                builder.append(")");
-            }
-
-            return builder.toString();
+            return "*";
         }
 
         @Override
@@ -738,7 +728,7 @@ public final class ExpressionFormatter
         return "ORDER BY " + formatSortItems(orderBy.getSortItems());
     }
 
-    private static String formatSortItems(List<SortItem> sortItems)
+    static String formatSortItems(List<SortItem> sortItems)
     {
         return Joiner.on(", ").join(sortItems.stream()
                 .map(sortItemFormatterFunction())
@@ -746,6 +736,11 @@ public final class ExpressionFormatter
     }
 
     static String formatGroupBy(List<GroupingElement> groupingElements)
+    {
+        return formatGroupBy(groupingElements, Optional.empty());
+    }
+
+    static String formatGroupBy(List<GroupingElement> groupingElements, Optional<List<Expression>> parameters)
     {
         ImmutableList.Builder<String> resultStrings = ImmutableList.builder();
 
@@ -792,7 +787,7 @@ public final class ExpressionFormatter
                 .iterator()));
     }
 
-    private static Function<SortItem, String> sortItemFormatterFunction()
+    public static Function<SortItem, String> sortItemFormatterFunction()
     {
         return input -> {
             StringBuilder builder = new StringBuilder();

@@ -32,7 +32,7 @@ import java.util.Set;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
-final class Util
+class Util
 {
     private Util()
     {

@@ -23,7 +23,6 @@ import io.prestosql.spi.resourcegroups.SelectionCriteria;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.Executor;
 
 /**
@@ -37,9 +36,9 @@ public interface ResourceGroupManager<C>
 
     SelectionContext<C> selectGroup(SelectionCriteria criteria);
 
-    Optional<ResourceGroupInfo> tryGetResourceGroupInfo(ResourceGroupId id);
+    ResourceGroupInfo getResourceGroupInfo(ResourceGroupId id);
 
-    Optional<List<ResourceGroupInfo>> tryGetPathToRoot(ResourceGroupId id);
+    List<ResourceGroupInfo> getPathToRoot(ResourceGroupId id);
 
     void addConfigurationManagerFactory(ResourceGroupConfigurationManagerFactory factory);
 

@@ -30,7 +30,7 @@ import static io.prestosql.operator.aggregation.AggregationUtils.updateCovarianc
 import static io.prestosql.spi.type.DoubleType.DOUBLE;
 
 @AggregationFunction
-public final class DoubleCovarianceAggregation
+public class DoubleCovarianceAggregation
 {
     private DoubleCovarianceAggregation() {}
 

@@ -83,7 +83,7 @@ statement
     | REVOKE
         (GRANT OPTION FOR)?
         (privilege (',' privilege)* | ALL PRIVILEGES)
-        ON TABLE? qualifiedName FROM grantee=principal                 #revoke
+        ON TABLE? qualifiedName FROM grantee=principal                #revoke
     | SHOW GRANTS
         (ON TABLE? qualifiedName)?                                     #showGrants
     | EXPLAIN ANALYZE? VERBOSE?
@@ -204,9 +204,9 @@ setQuantifier
     ;
 
 selectItem
-    : expression (AS? identifier)?                          #selectSingle
-    | primaryExpression '.' ASTERISK (AS columnAliases)?    #selectAll
-    | ASTERISK                                              #selectAll
+    : expression (AS? identifier)?  #selectSingle
+    | qualifiedName '.' ASTERISK    #selectAll
+    | ASTERISK                      #selectAll
     ;
 
 relation
@@ -449,7 +449,7 @@ pathSpecification
     ;
 
 privilege
-    : SELECT | DELETE | INSERT
+    : SELECT | DELETE | INSERT | identifier
     ;
 
 qualifiedName

@@ -21,7 +21,9 @@ import java.util.function.LongConsumer;
 
 public final class PageUtils
 {
-    private PageUtils() {}
+    private PageUtils()
+    {
+    }
 
     public static Page recordMaterializedBytes(Page page, LongConsumer sizeInBytesConsumer)
     {

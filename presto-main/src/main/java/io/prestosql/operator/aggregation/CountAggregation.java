@@ -27,7 +27,9 @@ import static io.prestosql.spi.type.BigintType.BIGINT;
 @AggregationFunction("count")
 public final class CountAggregation
 {
-    private CountAggregation() {}
+    private CountAggregation()
+    {
+    }
 
     @InputFunction
     public static void input(@AggregationState LongState state)

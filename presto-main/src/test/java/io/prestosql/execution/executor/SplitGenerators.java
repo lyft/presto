@@ -29,7 +29,7 @@ import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
-final class SplitGenerators
+class SplitGenerators
 {
     private SplitGenerators() {}
 

@@ -202,12 +202,7 @@ public final class StandardColumnMappings
 
     public static ColumnMapping varcharColumnMapping(VarcharType varcharType)
     {
-        return ColumnMapping.sliceMapping(varcharType, varcharReadFunction(), varcharWriteFunction());
-    }
-
-    public static SliceReadFunction varcharReadFunction()
-    {
-        return (resultSet, columnIndex) -> utf8Slice(resultSet.getString(columnIndex));
+        return ColumnMapping.sliceMapping(varcharType, (resultSet, columnIndex) -> utf8Slice(resultSet.getString(columnIndex)), varcharWriteFunction());
     }
 
     public static SliceWriteFunction varcharWriteFunction()
@@ -316,19 +311,18 @@ public final class StandardColumnMappings
 
     public static ColumnMapping timestampColumnMapping(ConnectorSession session)
     {
-        return ColumnMapping.longMapping(
-                TIMESTAMP,
-                timestampReadFunction(session),
-                timestampWriteFunction(session));
-    }
-
-    public static LongReadFunction timestampReadFunction(ConnectorSession session)
-    {
         if (session.isLegacyTimestamp()) {
             ZoneId sessionZone = ZoneId.of(session.getTimeZoneKey().getId());
-            return (resultSet, columnIndex) -> toPrestoLegacyTimestamp(resultSet.getObject(columnIndex, LocalDateTime.class), sessionZone);
+            return ColumnMapping.longMapping(
+                    TIMESTAMP,
+                    (resultSet, columnIndex) -> toPrestoLegacyTimestamp(resultSet.getObject(columnIndex, LocalDateTime.class), sessionZone),
+                    timestampWriteFunction(session));
         }
-        return (resultSet, columnIndex) -> toPrestoTimestamp(resultSet.getObject(columnIndex, LocalDateTime.class));
+
+        return ColumnMapping.longMapping(
+                TIMESTAMP,
+                (resultSet, columnIndex) -> toPrestoTimestamp(resultSet.getObject(columnIndex, LocalDateTime.class)),
+                timestampWriteFunction(session));
     }
 
     /**

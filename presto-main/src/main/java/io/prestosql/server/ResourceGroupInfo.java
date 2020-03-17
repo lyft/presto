@@ -14,9 +14,7 @@
 package io.prestosql.server;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.collect.ImmutableList;
 import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
 import io.prestosql.spi.resourcegroups.ResourceGroupId;
 import io.prestosql.spi.resourcegroups.ResourceGroupState;
 import io.prestosql.spi.resourcegroups.SchedulingPolicy;
@@ -24,7 +22,6 @@ import io.prestosql.spi.resourcegroups.SchedulingPolicy;
 import javax.annotation.Nullable;
 
 import java.util.List;
-import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -46,13 +43,13 @@ public class ResourceGroupInfo
     private final int maxQueuedQueries;
 
     private final DataSize memoryUsage;
-    private final Duration cpuUsage;
     private final int numQueuedQueries;
     private final int numRunningQueries;
     private final int numEligibleSubGroups;
 
-    private final Optional<List<ResourceGroupInfo>> subGroups;
-    private final Optional<List<QueryStateInfo>> runningQueries;
+    // Summaries do not include the following fields
+    private final List<ResourceGroupInfo> subGroups;
+    private final List<QueryStateInfo> runningQueries;
 
     public ResourceGroupInfo(
             ResourceGroupId id,
@@ -67,13 +64,13 @@ public class ResourceGroupInfo
             int maxQueuedQueries,
 
             DataSize memoryUsage,
-            Duration cpuUsage,
             int numQueuedQueries,
             int numRunningQueries,
             int numEligibleSubGroups,
 
-            Optional<List<ResourceGroupInfo>> subGroups,
-            Optional<List<QueryStateInfo>> runningQueries)
+            List<ResourceGroupInfo> subGroups,
+
+            List<QueryStateInfo> runningQueries)
     {
         this.id = requireNonNull(id, "id is null");
         this.state = requireNonNull(state, "state is null");
@@ -88,13 +85,13 @@ public class ResourceGroupInfo
         this.maxQueuedQueries = maxQueuedQueries;
 
         this.memoryUsage = requireNonNull(memoryUsage, "memoryUsage is null");
-        this.cpuUsage = requireNonNull(cpuUsage, "cpuUsage is null");
         this.numQueuedQueries = numQueuedQueries;
         this.numRunningQueries = numRunningQueries;
         this.numEligibleSubGroups = numEligibleSubGroups;
 
-        this.subGroups = requireNonNull(subGroups, "subGroups is null").map(ImmutableList::copyOf);
-        this.runningQueries = requireNonNull(runningQueries, "runningQueries is null").map(ImmutableList::copyOf);
+        this.runningQueries = runningQueries;
+
+        this.subGroups = subGroups;
     }
 
     @JsonProperty
@@ -128,6 +125,12 @@ public class ResourceGroupInfo
     }
 
     @JsonProperty
+    public DataSize getMemoryUsage()
+    {
+        return memoryUsage;
+    }
+
+    @JsonProperty
     public int getSoftConcurrencyLimit()
     {
         return softConcurrencyLimit;
@@ -146,18 +149,6 @@ public class ResourceGroupInfo
     }
 
     @JsonProperty
-    public DataSize getMemoryUsage()
-    {
-        return memoryUsage;
-    }
-
-    @JsonProperty
-    public Duration getCpuUsage()
-    {
-        return cpuUsage;
-    }
-
-    @JsonProperty
     public int getNumQueuedQueries()
     {
         return numQueuedQueries;
@@ -170,21 +161,36 @@ public class ResourceGroupInfo
     }
 
     @JsonProperty
+    @Deprecated
+    public int numAggregatedQueuedQueries()
+    {
+        return numQueuedQueries;
+    }
+
+    @JsonProperty
+    @Deprecated
+    public int numAggregatedRunningQueries()
+    {
+        return numRunningQueries;
+    }
+
+    @JsonProperty
     public int getNumEligibleSubGroups()
     {
         return numEligibleSubGroups;
     }
 
     @JsonProperty
-    public Optional<List<ResourceGroupInfo>> getSubGroups()
+    @Nullable
+    public List<QueryStateInfo> getRunningQueries()
     {
-        return subGroups;
+        return runningQueries;
     }
 
     @JsonProperty
     @Nullable
-    public Optional<List<QueryStateInfo>> getRunningQueries()
+    public List<ResourceGroupInfo> getSubGroups()
     {
-        return runningQueries;
+        return subGroups;
     }
 }

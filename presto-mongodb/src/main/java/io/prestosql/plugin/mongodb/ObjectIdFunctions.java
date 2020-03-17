@@ -43,7 +43,7 @@ import static io.prestosql.spi.function.OperatorType.NOT_EQUAL;
 import static io.prestosql.spi.function.OperatorType.XX_HASH_64;
 import static java.lang.Math.toIntExact;
 
-public final class ObjectIdFunctions
+public class ObjectIdFunctions
 {
     private ObjectIdFunctions() {}
 

@@ -52,7 +52,7 @@ import static io.prestosql.sql.tree.ArithmeticBinaryExpression.Operator.ADD;
 import static io.prestosql.sql.tree.ArithmeticBinaryExpression.Operator.MULTIPLY;
 import static java.util.Objects.requireNonNull;
 
-public final class CanonicalizeExpressionRewriter
+public class CanonicalizeExpressionRewriter
 {
     public static Expression canonicalizeExpression(Expression expression, Map<NodeRef<Expression>, Type> expressionTypes, Metadata metadata)
     {

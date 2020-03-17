@@ -51,7 +51,7 @@ import static java.lang.Double.isNaN;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
-public final class GeometrySerde
+public class GeometrySerde
 {
     private GeometrySerde() {}
 

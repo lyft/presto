@@ -78,7 +78,7 @@ public class PlanNodeDecorrelator
     private class DecorrelatingVisitor
             extends PlanVisitor<Optional<DecorrelationResult>, Void>
     {
-        private final List<Symbol> correlation;
+        final List<Symbol> correlation;
 
         DecorrelatingVisitor(List<Symbol> correlation)
         {
@@ -145,12 +145,8 @@ public class PlanNodeDecorrelator
         @Override
         public Optional<DecorrelationResult> visitLimit(LimitNode node, Void context)
         {
-            if (node.getCount() == 0) {
-                return Optional.empty();
-            }
-
             Optional<DecorrelationResult> childDecorrelationResultOptional = lookup.resolve(node.getSource()).accept(this, null);
-            if (!childDecorrelationResultOptional.isPresent()) {
+            if (!childDecorrelationResultOptional.isPresent() || node.getCount() == 0) {
                 return Optional.empty();
             }
 

@@ -25,9 +25,9 @@ import io.prestosql.sql.planner.Symbol;
 import io.prestosql.sql.planner.iterative.Rule;
 import io.prestosql.sql.planner.plan.AssignUniqueId;
 import io.prestosql.sql.planner.plan.Assignments;
-import io.prestosql.sql.planner.plan.CorrelatedJoinNode;
 import io.prestosql.sql.planner.plan.EnforceSingleRowNode;
 import io.prestosql.sql.planner.plan.FilterNode;
+import io.prestosql.sql.planner.plan.LateralJoinNode;
 import io.prestosql.sql.planner.plan.MarkDistinctNode;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.ProjectNode;
@@ -47,10 +47,10 @@ import static io.prestosql.spi.type.StandardTypes.BOOLEAN;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
 import static io.prestosql.sql.planner.optimizations.QueryCardinalityUtil.extractCardinality;
-import static io.prestosql.sql.planner.plan.CorrelatedJoinNode.Type.LEFT;
-import static io.prestosql.sql.planner.plan.Patterns.CorrelatedJoin.correlation;
-import static io.prestosql.sql.planner.plan.Patterns.CorrelatedJoin.filter;
-import static io.prestosql.sql.planner.plan.Patterns.correlatedJoin;
+import static io.prestosql.sql.planner.plan.LateralJoinNode.Type.LEFT;
+import static io.prestosql.sql.planner.plan.Patterns.LateralJoin.correlation;
+import static io.prestosql.sql.planner.plan.Patterns.LateralJoin.filter;
+import static io.prestosql.sql.planner.plan.Patterns.lateralJoin;
 import static io.prestosql.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static java.util.Objects.requireNonNull;
 
@@ -64,7 +64,7 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * From:
  * <pre>
- * - CorrelatedJoin (with correlation list: [C])
+ * - LateralJoin (with correlation list: [C])
  *   - (input) plan which produces symbols: [A, B, C]
  *   - (scalar subquery) Project F
  *     - Filter(D = C AND E > 5)
@@ -74,7 +74,7 @@ import static java.util.Objects.requireNonNull;
  * <pre>
  * - Filter(CASE isDistinct WHEN true THEN true ELSE fail('Scalar sub-query has returned multiple rows'))
  *   - MarkDistinct(isDistinct)
- *     - CorrelatedJoin (with correlation list: [C])
+ *     - LateralJoin (with correlation list: [C])
  *       - AssignUniqueId(adds symbol U)
  *         - (input) plan which produces symbols: [A, B, C]
  *       - non scalar subquery
@@ -83,9 +83,9 @@ import static java.util.Objects.requireNonNull;
  * This must be run after {@link TransformCorrelatedScalarAggregationToJoin}
  */
 public class TransformCorrelatedScalarSubquery
-        implements Rule<CorrelatedJoinNode>
+        implements Rule<LateralJoinNode>
 {
-    private static final Pattern<CorrelatedJoinNode> PATTERN = correlatedJoin()
+    private static final Pattern<LateralJoinNode> PATTERN = lateralJoin()
             .with(nonEmpty(correlation()))
             .with(filter().equalTo(TRUE_LITERAL));
 
@@ -97,15 +97,15 @@ public class TransformCorrelatedScalarSubquery
     }
 
     @Override
-    public Pattern<CorrelatedJoinNode> getPattern()
+    public Pattern<LateralJoinNode> getPattern()
     {
         return PATTERN;
     }
 
     @Override
-    public Result apply(CorrelatedJoinNode correlatedJoinNode, Captures captures, Context context)
+    public Result apply(LateralJoinNode lateralJoinNode, Captures captures, Context context)
     {
-        PlanNode subquery = context.getLookup().resolve(correlatedJoinNode.getSubquery());
+        PlanNode subquery = context.getLookup().resolve(lateralJoinNode.getSubquery());
 
         if (!searchFrom(subquery, context.getLookup())
                 .where(EnforceSingleRowNode.class::isInstance)
@@ -123,36 +123,36 @@ public class TransformCorrelatedScalarSubquery
         boolean producesAtMostOneRow = Range.closed(0L, 1L).encloses(subqueryCardinality);
         if (producesAtMostOneRow) {
             boolean producesSingleRow = Range.singleton(1L).encloses(subqueryCardinality);
-            return Result.ofPlanNode(new CorrelatedJoinNode(
+            return Result.ofPlanNode(new LateralJoinNode(
                     context.getIdAllocator().getNextId(),
-                    correlatedJoinNode.getInput(),
+                    lateralJoinNode.getInput(),
                     rewrittenSubquery,
-                    correlatedJoinNode.getCorrelation(),
-                    producesSingleRow ? correlatedJoinNode.getType() : LEFT,
-                    correlatedJoinNode.getFilter(),
-                    correlatedJoinNode.getOriginSubquery()));
+                    lateralJoinNode.getCorrelation(),
+                    producesSingleRow ? lateralJoinNode.getType() : LEFT,
+                    lateralJoinNode.getFilter(),
+                    lateralJoinNode.getOriginSubquery()));
         }
 
         Symbol unique = context.getSymbolAllocator().newSymbol("unique", BigintType.BIGINT);
 
-        CorrelatedJoinNode rewrittenCorrelatedJoinNode = new CorrelatedJoinNode(
+        LateralJoinNode rewrittenLateralJoinNode = new LateralJoinNode(
                 context.getIdAllocator().getNextId(),
                 new AssignUniqueId(
                         context.getIdAllocator().getNextId(),
-                        correlatedJoinNode.getInput(),
+                        lateralJoinNode.getInput(),
                         unique),
                 rewrittenSubquery,
-                correlatedJoinNode.getCorrelation(),
+                lateralJoinNode.getCorrelation(),
                 LEFT,
-                correlatedJoinNode.getFilter(),
-                correlatedJoinNode.getOriginSubquery());
+                lateralJoinNode.getFilter(),
+                lateralJoinNode.getOriginSubquery());
 
         Symbol isDistinct = context.getSymbolAllocator().newSymbol("is_distinct", BooleanType.BOOLEAN);
         MarkDistinctNode markDistinctNode = new MarkDistinctNode(
                 context.getIdAllocator().getNextId(),
-                rewrittenCorrelatedJoinNode,
+                rewrittenLateralJoinNode,
                 isDistinct,
-                rewrittenCorrelatedJoinNode.getInput().getOutputSymbols(),
+                rewrittenLateralJoinNode.getInput().getOutputSymbols(),
                 Optional.empty());
 
         FilterNode filterNode = new FilterNode(
@@ -173,6 +173,6 @@ public class TransformCorrelatedScalarSubquery
         return Result.ofPlanNode(new ProjectNode(
                 context.getIdAllocator().getNextId(),
                 filterNode,
-                Assignments.identity(correlatedJoinNode.getOutputSymbols())));
+                Assignments.identity(lateralJoinNode.getOutputSymbols())));
     }
 }

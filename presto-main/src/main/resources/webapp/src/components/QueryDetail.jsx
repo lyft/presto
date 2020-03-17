@@ -647,8 +647,7 @@ export class QueryDetail extends React.Component {
             reservedMemory: [],
 
             initialized: false,
-            queryEnded: false,
-            renderingEnded: false,
+            ended: false,
 
             lastRefresh: null,
             lastRender: null,
@@ -712,7 +711,7 @@ export class QueryDetail extends React.Component {
     resetTimer() {
         clearTimeout(this.timeoutId);
         // stop refreshing when query finishes or fails
-        if (this.state.query === null || !this.state.queryEnded) {
+        if (this.state.query === null || !this.state.ended) {
             // task.info-update-interval is set to 3 seconds by default
             this.timeoutId = setTimeout(this.refreshLoop, 3000);
         }
@@ -736,7 +735,7 @@ export class QueryDetail extends React.Component {
             const lastCpuTime = this.state.lastCpuTime;
             const lastRowInput = this.state.lastRowInput;
             const lastByteInput = this.state.lastByteInput;
-            const alreadyEnded = this.state.queryEnded;
+            const alreadyEnded = this.state.ended;
             const nowMillis = Date.now();
 
             this.setState({
@@ -750,7 +749,7 @@ export class QueryDetail extends React.Component {
                 lastByteInput: parseDataSize(query.queryStats.processedInputDataSize),
 
                 initialized: true,
-                queryEnded: !!query.finalQueryInfo,
+                ended: query.finalQueryInfo,
 
                 lastRefresh: nowMillis,
             });
@@ -776,7 +775,7 @@ export class QueryDetail extends React.Component {
                     cpuTimeRate: addToHistory(currentCpuTimeRate, this.state.cpuTimeRate),
                     rowInputRate: addToHistory(currentRowInputRate, this.state.rowInputRate),
                     byteInputRate: addToHistory(currentByteInputRate, this.state.byteInputRate),
-                    reservedMemory: addToHistory(parseDataSize(query.queryStats.totalMemoryReservation), this.state.reservedMemory),
+                    reservedMemory: addToHistory(parseDataSize(query.queryStats.userMemoryReservation), this.state.reservedMemory),
                 });
             }
             this.resetTimer();
@@ -862,7 +861,7 @@ export class QueryDetail extends React.Component {
 
     componentDidUpdate() {
         // prevent multiple calls to componentDidUpdate (resulting from calls to setState or otherwise) within the refresh interval from re-rendering sparklines/charts
-        if (this.state.lastRender === null || (Date.now() - this.state.lastRender) >= 1000 || (this.state.ended && !this.state.renderingEnded)) {
+        if (this.state.lastRender === null || (Date.now() - this.state.lastRender) >= 1000) {
             const renderTimestamp = Date.now();
             $('#scheduled-time-rate-sparkline').sparkline(this.state.scheduledTimeRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {
                 chartRangeMin: 0,
@@ -880,7 +879,6 @@ export class QueryDetail extends React.Component {
             }
 
             this.setState({
-                renderingEnded: this.state.ended,
                 lastRender: renderTimestamp,
             });
         }
@@ -1246,18 +1244,10 @@ export class QueryDetail extends React.Component {
                             </tr>
                             <tr>
                                 <td className="info-title">
-                                    Analysis Time
-                                </td>
-                                <td className="info-text">
-                                    {query.queryStats.analysisTime}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
                                     Planning Time
                                 </td>
                                 <td className="info-text">
-                                    {query.queryStats.planningTime}
+                                    {query.queryStats.totalPlanningTime}
                                 </td>
                             </tr>
                             <tr>

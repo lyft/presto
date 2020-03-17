@@ -411,7 +411,7 @@ class AggregationAnalyzer
         }
 
         @Override
-        protected Boolean visitWindow(Window node, Void context)
+        public Boolean visitWindow(Window node, Void context)
         {
             for (Expression expression : node.getPartitionBy()) {
                 if (!process(expression, context)) {
@@ -440,7 +440,7 @@ class AggregationAnalyzer
         }
 
         @Override
-        protected Boolean visitWindowFrame(WindowFrame node, Void context)
+        public Boolean visitWindowFrame(WindowFrame node, Void context)
         {
             Optional<Expression> start = node.getStart().getValue();
             if (start.isPresent()) {
@@ -589,14 +589,14 @@ class AggregationAnalyzer
         }
 
         @Override
-        protected Boolean visitRow(Row node, final Void context)
+        public Boolean visitRow(Row node, final Void context)
         {
             return node.getItems().stream()
                     .allMatch(item -> process(item, context));
         }
 
         @Override
-        protected Boolean visitParameter(Parameter node, Void context)
+        public Boolean visitParameter(Parameter node, Void context)
         {
             if (analysis.isDescribe()) {
                 return true;
@@ -606,8 +606,7 @@ class AggregationAnalyzer
             return process(parameters.get(node.getPosition()), context);
         }
 
-        @Override
-        protected Boolean visitGroupingOperation(GroupingOperation node, Void context)
+        public Boolean visitGroupingOperation(GroupingOperation node, Void context)
         {
             // ensure that no output fields are referenced from ORDER BY clause
             if (orderByScope.isPresent()) {

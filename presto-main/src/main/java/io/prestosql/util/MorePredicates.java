@@ -17,7 +17,7 @@ import java.util.function.Predicate;
 
 import static com.google.common.base.Predicates.alwaysFalse;
 
-public final class MorePredicates
+public class MorePredicates
 {
     private MorePredicates() {}
 

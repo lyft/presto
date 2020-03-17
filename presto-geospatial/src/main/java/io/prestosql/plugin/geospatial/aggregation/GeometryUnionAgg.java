@@ -34,7 +34,7 @@ import static io.prestosql.plugin.geospatial.GeometryType.GEOMETRY_TYPE_NAME;
  */
 @Description("Returns a geometry that represents the point set union of the input geometries.")
 @AggregationFunction("geometry_union_agg")
-public final class GeometryUnionAgg
+public class GeometryUnionAgg
 {
     private GeometryUnionAgg() {}
 

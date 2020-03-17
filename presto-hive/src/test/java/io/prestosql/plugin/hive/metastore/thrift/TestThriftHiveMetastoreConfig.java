@@ -18,7 +18,6 @@ import io.airlift.units.Duration;
 import org.testng.annotations.Test;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import static io.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
 import static io.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
@@ -31,7 +30,6 @@ public class TestThriftHiveMetastoreConfig
     public void testDefaults()
     {
         assertRecordedDefaults(recordDefaults(ThriftHiveMetastoreConfig.class)
-                .setMetastoreTimeout(new Duration(10, TimeUnit.SECONDS))
                 .setMaxRetries(9)
                 .setBackoffScaleFactor(2.0)
                 .setMinBackoffDelay(new Duration(1, SECONDS))
@@ -43,7 +41,6 @@ public class TestThriftHiveMetastoreConfig
     public void testExplicitPropertyMappings()
     {
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
-                .put("hive.metastore-timeout", "20s")
                 .put("hive.metastore.thrift.client.max-retries", "15")
                 .put("hive.metastore.thrift.client.backoff-scale-factor", "3.0")
                 .put("hive.metastore.thrift.client.min-backoff-delay", "2s")
@@ -52,7 +49,6 @@ public class TestThriftHiveMetastoreConfig
                 .build();
 
         ThriftHiveMetastoreConfig expected = new ThriftHiveMetastoreConfig()
-                .setMetastoreTimeout(new Duration(20, TimeUnit.SECONDS))
                 .setMaxRetries(15)
                 .setBackoffScaleFactor(3.0)
                 .setMinBackoffDelay(new Duration(2, SECONDS))

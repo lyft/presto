@@ -200,16 +200,11 @@ public class TreePrinter
             @Override
             protected Void visitAllColumns(AllColumns node, Integer indent)
             {
-                StringBuilder aliases = new StringBuilder();
-                if (!node.getAliases().isEmpty()) {
-                    aliases.append(" [Aliases: ");
-                    Joiner.on(", ").appendTo(aliases, node.getAliases());
-                    aliases.append("]");
+                if (node.getPrefix().isPresent()) {
+                    print(indent, node.getPrefix() + ".*");
                 }
-                print(indent, "All columns" + aliases.toString());
-
-                if (node.getTarget().isPresent()) {
-                    super.visitAllColumns(node, indent + 1); // visit child
+                else {
+                    print(indent, "*");
                 }
 
                 return null;

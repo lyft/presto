@@ -317,7 +317,6 @@ public class HiveMetadata
         return new HiveTableHandle(
                 tableName.getSchemaName(),
                 tableName.getTableName(),
-                table.get().getParameters(),
                 getPartitionKeyColumnHandles(table.get()),
                 getHiveBucketHandle(table.get()));
     }
@@ -1168,7 +1167,7 @@ public class HiveMetadata
             partitionUpdates = PartitionUpdate.mergePartitionUpdates(concat(partitionUpdates, partitionUpdatesForMissingBuckets));
             for (PartitionUpdate partitionUpdate : partitionUpdatesForMissingBuckets) {
                 Optional<Partition> partition = table.getPartitionColumns().isEmpty() ? Optional.empty() : Optional.of(buildPartitionObject(session, table, partitionUpdate));
-                createEmptyFiles(session, partitionUpdate.getWritePath(), table, partition, partitionUpdate.getFileNames());
+                createEmptyFile(session, partitionUpdate.getWritePath(), table, partition, partitionUpdate.getFileNames());
             }
         }
 
@@ -1276,7 +1275,7 @@ public class HiveMetadata
         return missingFileNames;
     }
 
-    private void createEmptyFiles(ConnectorSession session, Path path, Table table, Optional<Partition> partition, List<String> fileNames)
+    private void createEmptyFile(ConnectorSession session, Path path, Table table, Optional<Partition> partition, List<String> fileNames)
     {
         JobConf conf = toJobConf(hdfsEnvironment.getConfiguration(new HdfsContext(session, table.getDatabaseName(), table.getTableName()), path));
 
@@ -1290,11 +1289,10 @@ public class HiveMetadata
             schema = getHiveSchema(table);
             format = table.getStorage().getStorageFormat();
         }
-        hdfsEnvironment.doAs(session.getUser(), () -> {
-            for (String fileName : fileNames) {
-                writeEmptyFile(session, new Path(path, fileName), conf, schema, format.getSerDe(), format.getOutputFormat());
-            }
-        });
+
+        for (String fileName : fileNames) {
+            writeEmptyFile(session, new Path(path, fileName), conf, schema, format.getSerDe(), format.getOutputFormat());
+        }
     }
 
     private static void writeEmptyFile(ConnectorSession session, Path target, JobConf conf, Properties properties, String serDe, String outputFormatName)
@@ -1383,7 +1381,7 @@ public class HiveMetadata
             partitionUpdates = PartitionUpdate.mergePartitionUpdates(concat(partitionUpdates, partitionUpdatesForMissingBuckets));
             for (PartitionUpdate partitionUpdate : partitionUpdatesForMissingBuckets) {
                 Optional<Partition> partition = table.getPartitionColumns().isEmpty() ? Optional.empty() : Optional.of(buildPartitionObject(session, table, partitionUpdate));
-                createEmptyFiles(session, partitionUpdate.getWritePath(), table, partition, partitionUpdate.getFileNames());
+                createEmptyFile(session, partitionUpdate.getWritePath(), table, partition, partitionUpdate.getFileNames());
             }
         }
 
@@ -1569,7 +1567,7 @@ public class HiveMetadata
                 throw new ViewAlreadyExistsException(viewName);
             }
 
-            metastore.replaceTable(viewName.getSchemaName(), viewName.getTableName(), table, principalPrivileges);
+            metastore.replaceView(viewName.getSchemaName(), viewName.getTableName(), table, principalPrivileges);
             return;
         }
 
@@ -1814,7 +1812,6 @@ public class HiveMetadata
         return new HiveTableHandle(
                 hiveTable.getSchemaName(),
                 hiveTable.getTableName(),
-                hiveTable.getTableParameters(),
                 hiveTable.getPartitionColumns(),
                 hiveTable.getPartitions(),
                 hiveTable.getCompactEffectivePredicate(),

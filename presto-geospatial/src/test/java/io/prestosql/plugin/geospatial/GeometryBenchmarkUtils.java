@@ -21,7 +21,7 @@ import static com.google.common.io.Resources.readLines;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
-public final class GeometryBenchmarkUtils
+public class GeometryBenchmarkUtils
 {
     private GeometryBenchmarkUtils() {}
 

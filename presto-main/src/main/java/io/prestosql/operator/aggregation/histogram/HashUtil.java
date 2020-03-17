@@ -16,9 +16,11 @@ package io.prestosql.operator.aggregation.histogram;
 import static com.google.common.base.Preconditions.checkArgument;
 import static it.unimi.dsi.fastutil.HashCommon.arraySize;
 
-public final class HashUtil
+public class HashUtil
 {
-    private HashUtil() {}
+    private HashUtil()
+    {
+    }
 
     public static int nextProbeLinear(int probeCount)
     {

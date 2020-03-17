@@ -32,7 +32,6 @@ class ThreadInterruptor
         }
     }
 
-    @SuppressWarnings("ResultOfMethodCallIgnored")
     @Override
     public synchronized void close()
     {

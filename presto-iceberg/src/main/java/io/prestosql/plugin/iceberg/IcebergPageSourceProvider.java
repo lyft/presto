@@ -228,6 +228,7 @@ public class IcebergPageSourceProvider
                     typeManager,
                     new Properties(),
                     columnNameReplaced,
+                    effectivePredicate,
                     useParquetColumnNames);
 
             return new HivePageSource(

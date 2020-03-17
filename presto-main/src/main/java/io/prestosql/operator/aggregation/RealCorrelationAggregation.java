@@ -29,7 +29,7 @@ import static java.lang.Float.floatToRawIntBits;
 import static java.lang.Float.intBitsToFloat;
 
 @AggregationFunction("corr")
-public final class RealCorrelationAggregation
+public class RealCorrelationAggregation
 {
     private RealCorrelationAggregation() {}
 

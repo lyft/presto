@@ -72,9 +72,11 @@ import static java.util.Objects.requireNonNull;
 import static org.objectweb.asm.Type.getMethodType;
 import static org.objectweb.asm.Type.getType;
 
-public final class LambdaBytecodeGenerator
+public class LambdaBytecodeGenerator
 {
-    private LambdaBytecodeGenerator() {}
+    private LambdaBytecodeGenerator()
+    {
+    }
 
     public static Map<LambdaDefinitionExpression, CompiledLambda> generateMethodsForLambda(
             ClassDefinition containerClassDefinition,

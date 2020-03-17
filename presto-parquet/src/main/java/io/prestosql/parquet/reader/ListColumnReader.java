@@ -18,9 +18,11 @@ import io.prestosql.parquet.ParquetTypeUtils;
 import it.unimi.dsi.fastutil.booleans.BooleanList;
 import it.unimi.dsi.fastutil.ints.IntList;
 
-public final class ListColumnReader
+public class ListColumnReader
 {
-    private ListColumnReader() {}
+    private ListColumnReader()
+    {
+    }
 
     /**
      * Each collection (Array or Map) has four variants of presence:

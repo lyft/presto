@@ -45,7 +45,9 @@ import static java.util.Objects.requireNonNull;
 
 public final class AggregationFromAnnotationsParser
 {
-    private AggregationFromAnnotationsParser() {}
+    private AggregationFromAnnotationsParser()
+    {
+    }
 
     // This function should only be used for function matching for testing purposes.
     // General purpose function matching is done through FunctionRegistry.

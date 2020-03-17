@@ -204,20 +204,6 @@ public final class QueryAssertions
         }
     }
 
-    public static void assertQueryEventually(
-            QueryRunner actualQueryRunner,
-            Session session,
-            @Language("SQL") String actual,
-            H2QueryRunner h2QueryRunner,
-            @Language("SQL") String expected,
-            boolean ensureOrdering,
-            boolean compareUpdate,
-            Optional<Consumer<Plan>> planAssertion,
-            Duration timeout)
-    {
-        assertEventually(timeout, () -> assertQuery(actualQueryRunner, session, actual, h2QueryRunner, expected, ensureOrdering, compareUpdate, planAssertion));
-    }
-
     public static void assertEqualsIgnoreOrder(Iterable<?> actual, Iterable<?> expected)
     {
         assertEqualsIgnoreOrder(actual, expected, null);
@@ -252,7 +238,19 @@ public final class QueryAssertions
 
     public static void assertContainsEventually(Supplier<MaterializedResult> all, MaterializedResult expectedSubset, Duration timeout)
     {
-        assertEventually(timeout, () -> assertContains(all.get(), expectedSubset));
+        long start = System.nanoTime();
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                assertContains(all.get(), expectedSubset);
+                return;
+            }
+            catch (AssertionError e) {
+                if (nanosSince(start).compareTo(timeout) > 0) {
+                    throw e;
+                }
+            }
+            sleepUninterruptibly(50, MILLISECONDS);
+        }
     }
 
     public static void assertContains(MaterializedResult all, MaterializedResult expectedSubset)
@@ -281,7 +279,19 @@ public final class QueryAssertions
 
     protected static void assertQueryFailsEventually(QueryRunner queryRunner, Session session, @Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp, Duration timeout)
     {
-        assertEventually(timeout, () -> assertQueryFails(queryRunner, session, sql, expectedMessageRegExp));
+        long start = System.nanoTime();
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                assertQueryFails(queryRunner, session, sql, expectedMessageRegExp);
+                return;
+            }
+            catch (AssertionError e) {
+                if (nanosSince(start).compareTo(timeout) > 0) {
+                    throw e;
+                }
+            }
+            sleepUninterruptibly(50, MILLISECONDS);
+        }
     }
 
     protected static void assertQueryFails(QueryRunner queryRunner, Session session, @Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp)
@@ -342,22 +352,5 @@ public final class QueryAssertions
         @Language("SQL") String sql = format("CREATE TABLE %s AS SELECT * FROM %s", table.getObjectName(), table);
         long rows = (Long) queryRunner.execute(session, sql).getMaterializedRows().get(0).getField(0);
         log.info("Imported %s rows for %s in %s", rows, table.getObjectName(), nanosSince(start).convertToMostSuccinctTimeUnit());
-    }
-
-    private static void assertEventually(Duration timeout, Runnable assertion)
-    {
-        long start = System.nanoTime();
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                assertion.run();
-                return;
-            }
-            catch (AssertionError e) {
-                if (nanosSince(start).compareTo(timeout) > 0) {
-                    throw e;
-                }
-            }
-            sleepUninterruptibly(50, MILLISECONDS);
-        }
     }
 }

@@ -41,7 +41,7 @@ import static java.lang.String.format;
  */
 @Description("Returns a geometry that is the convex hull of all the geometries in the set.")
 @AggregationFunction("convex_hull_agg")
-public final class ConvexHullAggregation
+public class ConvexHullAggregation
 {
     private static final Joiner OR_JOINER = Joiner.on(" or ");
 

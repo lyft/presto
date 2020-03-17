@@ -25,9 +25,11 @@ import io.prestosql.sql.relational.VariableReferenceExpression;
 
 import java.util.List;
 
-public final class LambdaExpressionExtractor
+public class LambdaExpressionExtractor
 {
-    private LambdaExpressionExtractor() {}
+    private LambdaExpressionExtractor()
+    {
+    }
 
     public static List<LambdaDefinitionExpression> extractLambdaExpressions(RowExpression expression)
     {

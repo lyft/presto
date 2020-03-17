@@ -201,6 +201,12 @@ public class LongInputStreamV1
     }
 
     @Override
+    public Class<? extends LongStreamV1Checkpoint> getCheckpointType()
+    {
+        return LongStreamV1Checkpoint.class;
+    }
+
+    @Override
     public void seekToCheckpoint(LongStreamCheckpoint checkpoint)
             throws IOException
     {

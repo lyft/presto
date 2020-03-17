@@ -49,6 +49,9 @@ class QueryStateTimer
     private final AtomicReference<Long> beginAnalysisNanos = new AtomicReference<>();
     private final AtomicReference<Duration> analysisTime = new AtomicReference<>();
 
+    private final AtomicReference<Long> beginDistributedPlanningNanos = new AtomicReference<>();
+    private final AtomicReference<Duration> distributedPlanningTime = new AtomicReference<>();
+
     private final AtomicReference<Long> lastHeartbeatNanos;
 
     public QueryStateTimer(Ticker ticker)
@@ -146,7 +149,7 @@ class QueryStateTimer
     //  Additional timings
     //
 
-    public void beginAnalysis()
+    public void beginAnalyzing()
     {
         beginAnalysisNanos.compareAndSet(null, tickerNanos());
     }
@@ -154,6 +157,16 @@ class QueryStateTimer
     public void endAnalysis()
     {
         analysisTime.compareAndSet(null, nanosSince(beginAnalysisNanos, tickerNanos()));
+    }
+
+    public void beginDistributedPlanning()
+    {
+        beginDistributedPlanningNanos.compareAndSet(null, tickerNanos());
+    }
+
+    public void endDistributedPlanning()
+    {
+        distributedPlanningTime.compareAndSet(null, nanosSince(beginDistributedPlanningNanos, tickerNanos()));
     }
 
     public void recordHeartbeat()
@@ -227,6 +240,11 @@ class QueryStateTimer
     public Duration getAnalysisTime()
     {
         return getDuration(analysisTime, beginAnalysisNanos);
+    }
+
+    public Duration getDistributedPlanningTime()
+    {
+        return getDuration(distributedPlanningTime, beginDistributedPlanningNanos);
     }
 
     public DateTime getLastHeartbeat()

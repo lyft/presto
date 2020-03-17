@@ -61,7 +61,9 @@ import static org.apache.parquet.column.Encoding.RLE;
 
 public final class PredicateUtils
 {
-    private PredicateUtils() {}
+    private PredicateUtils()
+    {
+    }
 
     public static boolean isStatisticsOverflow(Type type, ParquetIntegerStatistics parquetIntegerStatistics)
     {

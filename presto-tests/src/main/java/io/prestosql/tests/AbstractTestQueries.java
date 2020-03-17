@@ -3634,23 +3634,11 @@ public abstract class AbstractTestQueries
                 " WHERE n3.nationkey = n1.nationkey)" +
                 "FROM nation n1");
 
-        // count in subquery
+        //count in subquery
         assertQuery("SELECT * " +
-                        "FROM (VALUES (0), (1), (2), (7)) AS v1(c1) " +
-                        "WHERE v1.c1 > (SELECT count(c1) FROM (VALUES (0), (1), (2)) AS v2(c1) WHERE v1.c1 = v2.c1)",
+                        "FROM (VALUES (0),( 1), (2), (7)) AS v1(c1) " +
+                        "WHERE v1.c1 > (SELECT count(c1) FROM (VALUES (0),( 1), (2)) AS v2(c1) WHERE v1.c1 = v2.c1)",
                 "VALUES (2), (7)");
-
-        // count rows
-        assertQuery("SELECT (SELECT count(*) FROM (VALUES (1, true), (null, true)) inner_table(a, b) WHERE inner_table.b = outer_table.b) FROM (VALUES (true)) outer_table(b)",
-                "VALUES (2)");
-
-        // count rows
-        assertQuery("SELECT (SELECT count() FROM (VALUES (1, true), (null, true)) inner_table(a, b) WHERE inner_table.b = outer_table.b) FROM (VALUES (true)) outer_table(b)",
-                "VALUES (2)");
-
-        // count non null values
-        assertQuery("SELECT (SELECT count(a) FROM (VALUES (1, true), (null, true)) inner_table(a, b) WHERE inner_table.b = outer_table.b) FROM (VALUES (true)) outer_table(b)",
-                "VALUES (1)");
     }
 
     @Test

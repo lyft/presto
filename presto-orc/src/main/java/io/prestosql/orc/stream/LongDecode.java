@@ -31,7 +31,9 @@ import static io.prestosql.orc.stream.LongDecode.FixedBitSizes.TWENTY_SIX;
 // This is based on the Apache Hive ORC code
 public final class LongDecode
 {
-    private LongDecode() {}
+    private LongDecode()
+    {
+    }
 
     enum FixedBitSizes
     {

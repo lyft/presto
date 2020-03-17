@@ -44,9 +44,11 @@ import static io.prestosql.util.CompilerUtils.defineClass;
 import static io.prestosql.util.CompilerUtils.makeClassName;
 import static io.prestosql.util.Failures.checkCondition;
 
-public final class VarArgsToMapAdapterGenerator
+public class VarArgsToMapAdapterGenerator
 {
-    private VarArgsToMapAdapterGenerator() {}
+    private VarArgsToMapAdapterGenerator()
+    {
+    }
 
     /**
      * Generate byte code that

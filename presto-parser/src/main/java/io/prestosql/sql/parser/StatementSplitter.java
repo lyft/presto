@@ -104,7 +104,7 @@ public class StatementSplitter
         }
     }
 
-    public static TokenSource getLexer(String sql, Set<String> terminators)
+    private static TokenSource getLexer(String sql, Set<String> terminators)
     {
         requireNonNull(sql, "sql is null");
         CharStream stream = new CaseInsensitiveStream(new ANTLRInputStream(sql));

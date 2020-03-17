@@ -60,6 +60,12 @@ public class BooleanInputStream
     }
 
     @Override
+    public Class<BooleanStreamCheckpoint> getCheckpointType()
+    {
+        return BooleanStreamCheckpoint.class;
+    }
+
+    @Override
     public void seekToCheckpoint(BooleanStreamCheckpoint checkpoint)
             throws IOException
     {

@@ -35,6 +35,12 @@ public class DoubleInputStream
     }
 
     @Override
+    public Class<DoubleStreamCheckpoint> getCheckpointType()
+    {
+        return DoubleStreamCheckpoint.class;
+    }
+
+    @Override
     public void seekToCheckpoint(DoubleStreamCheckpoint checkpoint)
             throws IOException
     {

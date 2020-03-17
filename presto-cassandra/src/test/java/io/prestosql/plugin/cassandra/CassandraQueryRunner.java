@@ -28,7 +28,9 @@ import static io.prestosql.tests.QueryAssertions.copyTpchTables;
 
 public final class CassandraQueryRunner
 {
-    private CassandraQueryRunner() {}
+    private CassandraQueryRunner()
+    {
+    }
 
     private static boolean tpchLoaded;
 

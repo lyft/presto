@@ -53,7 +53,9 @@ import static java.lang.String.format;
 
 public final class BytecodeUtils
 {
-    private BytecodeUtils() {}
+    private BytecodeUtils()
+    {
+    }
 
     public static BytecodeNode ifWasNullPopAndGoto(Scope scope, LabelNode label, Class<?> returnType, Class<?>... stackArgsToPop)
     {

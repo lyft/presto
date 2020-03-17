@@ -117,7 +117,7 @@ public final class CharOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static final class CharDistinctFromOperator
+    public static class CharDistinctFromOperator
     {
         @LiteralParameters("x")
         @SqlType(StandardTypes.BOOLEAN)

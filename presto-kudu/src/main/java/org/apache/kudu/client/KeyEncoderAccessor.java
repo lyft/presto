@@ -18,9 +18,11 @@ import org.apache.kudu.Schema;
 /**
  * Little wrapper to access KeyEncoder in Kudu Java client.
  */
-public final class KeyEncoderAccessor
+public class KeyEncoderAccessor
 {
-    private KeyEncoderAccessor() {}
+    private KeyEncoderAccessor()
+    {
+    }
 
     public static byte[] encodePrimaryKey(PartialRow row)
     {

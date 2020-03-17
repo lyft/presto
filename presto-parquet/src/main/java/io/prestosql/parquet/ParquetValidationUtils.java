@@ -17,7 +17,9 @@ import static java.lang.String.format;
 
 public final class ParquetValidationUtils
 {
-    private ParquetValidationUtils() {}
+    private ParquetValidationUtils()
+    {
+    }
 
     public static void validateParquet(boolean condition, String formatString, Object... args)
             throws ParquetCorruptionException

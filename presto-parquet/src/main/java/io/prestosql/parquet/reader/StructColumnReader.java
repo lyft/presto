@@ -19,9 +19,11 @@ import it.unimi.dsi.fastutil.booleans.BooleanList;
 
 import static io.prestosql.parquet.ParquetTypeUtils.isValueNull;
 
-public final class StructColumnReader
+public class StructColumnReader
 {
-    private StructColumnReader() {}
+    private StructColumnReader()
+    {
+    }
 
     /**
      * Each struct has three variants of presence:

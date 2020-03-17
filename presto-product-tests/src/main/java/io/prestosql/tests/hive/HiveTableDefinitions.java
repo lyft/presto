@@ -18,7 +18,7 @@ import io.prestosql.tempto.fulfillment.table.hive.HiveTableDefinition;
 import static io.prestosql.tempto.fulfillment.table.hive.InlineDataSource.createResourceDataSource;
 import static java.lang.String.format;
 
-public final class HiveTableDefinitions
+public class HiveTableDefinitions
 {
     private static final String NATION_PARTITIONED_BY_REGIONKEY_TABLE_NAME = "nation_partitioned_by_regionkey";
 

@@ -25,6 +25,7 @@ import io.prestosql.Session;
 import io.prestosql.SystemSessionProperties;
 import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.metadata.Metadata;
+import io.prestosql.metadata.Signature;
 import io.prestosql.spi.function.OperatorType;
 import io.prestosql.spi.type.StandardTypes;
 import io.prestosql.sql.planner.FunctionCallBuilder;
@@ -37,7 +38,6 @@ import io.prestosql.sql.planner.TypeProvider;
 import io.prestosql.sql.planner.plan.AggregationNode;
 import io.prestosql.sql.planner.plan.ApplyNode;
 import io.prestosql.sql.planner.plan.Assignments;
-import io.prestosql.sql.planner.plan.CorrelatedJoinNode;
 import io.prestosql.sql.planner.plan.DistinctLimitNode;
 import io.prestosql.sql.planner.plan.EnforceSingleRowNode;
 import io.prestosql.sql.planner.plan.ExchangeNode;
@@ -45,6 +45,7 @@ import io.prestosql.sql.planner.plan.GroupIdNode;
 import io.prestosql.sql.planner.plan.IndexJoinNode;
 import io.prestosql.sql.planner.plan.IndexJoinNode.EquiJoinClause;
 import io.prestosql.sql.planner.plan.JoinNode;
+import io.prestosql.sql.planner.plan.LateralJoinNode;
 import io.prestosql.sql.planner.plan.MarkDistinctNode;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.PlanVisitor;
@@ -79,6 +80,8 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static io.prestosql.metadata.FunctionKind.SCALAR;
 import static io.prestosql.metadata.Signature.mangleOperatorName;
 import static io.prestosql.spi.type.BigintType.BIGINT;
 import static io.prestosql.sql.planner.SystemPartitioningHandle.FIXED_HASH_DISTRIBUTION;
@@ -95,6 +98,11 @@ public class HashGenerationOptimizer
 {
     public static final int INITIAL_HASH_VALUE = 0;
     private static final String HASH_CODE = mangleOperatorName(OperatorType.HASH_CODE);
+    private static final Signature COMBINE_HASH = new Signature(
+            "combine_hash",
+            SCALAR,
+            BIGINT.getTypeSignature(),
+            ImmutableList.of(BIGINT.getTypeSignature(), BIGINT.getTypeSignature()));
 
     private final Metadata metadata;
 
@@ -156,9 +164,9 @@ public class HashGenerationOptimizer
         }
 
         @Override
-        public PlanWithProperties visitCorrelatedJoin(CorrelatedJoinNode node, HashComputationSet context)
+        public PlanWithProperties visitLateralJoin(LateralJoinNode node, HashComputationSet context)
         {
-            // Correlated join node is not supported by execution, so do not rewrite it
+            // Lateral join node is not supported by execution, so do not rewrite it
             // that way query will fail in sanity checkers
             return new PlanWithProperties(node, ImmutableMap.of());
         }
@@ -232,7 +240,7 @@ public class HashGenerationOptimizer
         {
             // skip hash symbol generation for single bigint
             if (canSkipHashGeneration(node.getDistinctSymbols())) {
-                return planSimpleNodeWithProperties(node, parentPreference, false);
+                return planSimpleNodeWithProperties(node, parentPreference);
             }
 
             Optional<HashComputation> hashComputation = computeHash(metadata, symbolAllocator, node.getDistinctSymbols());
@@ -632,7 +640,7 @@ public class HashGenerationOptimizer
                     hashExpression = hashSymbol.toSymbolReference();
                 }
                 newAssignments.put(hashSymbol, hashExpression);
-                allHashSymbols.put(sourceContext.lookup(hashComputation), hashSymbol);
+                allHashSymbols.put(hashComputation, hashSymbol);
             }
 
             return new PlanWithProperties(new ProjectNode(node.getId(), child.getNode(), newAssignments.build()), allHashSymbols);
@@ -763,56 +771,52 @@ public class HashGenerationOptimizer
 
     private static class HashComputationSet
     {
-        private final Map<HashComputation, HashComputation> hashes;
+        private final Set<HashComputation> hashes;
 
         public HashComputationSet()
         {
-            hashes = ImmutableMap.of();
+            hashes = ImmutableSet.of();
         }
 
         public HashComputationSet(Optional<HashComputation> hash)
         {
             requireNonNull(hash, "hash is null");
             if (hash.isPresent()) {
-                this.hashes = ImmutableMap.of(hash.get(), hash.get());
+                this.hashes = ImmutableSet.of(hash.get());
             }
             else {
-                this.hashes = ImmutableMap.of();
+                this.hashes = ImmutableSet.of();
             }
         }
 
-        private HashComputationSet(Map<HashComputation, HashComputation> hashes)
+        private HashComputationSet(Iterable<HashComputation> hashes)
         {
             requireNonNull(hashes, "hashes is null");
-            this.hashes = ImmutableMap.copyOf(hashes);
+            this.hashes = ImmutableSet.copyOf(hashes);
         }
 
         public Set<HashComputation> getHashes()
         {
-            return hashes.keySet();
+            return hashes;
         }
 
         public HashComputationSet pruneSymbols(List<Symbol> symbols)
         {
             Set<Symbol> uniqueSymbols = ImmutableSet.copyOf(symbols);
-            return new HashComputationSet(hashes.entrySet().stream()
-                    .filter(hash -> hash.getKey().canComputeWith(uniqueSymbols))
-                    .collect(toImmutableMap(Entry::getKey, Entry::getValue)));
+            return new HashComputationSet(hashes.stream()
+                    .filter(hash -> hash.canComputeWith(uniqueSymbols))
+                    .collect(toImmutableSet()));
         }
 
         public HashComputationSet translate(Function<Symbol, Optional<Symbol>> translator)
         {
-            ImmutableMap.Builder<HashComputation, HashComputation> builder = ImmutableMap.builder();
-            for (HashComputation hashComputation : hashes.keySet()) {
-                hashComputation.translate(translator)
-                        .ifPresent(hash -> builder.put(hash, hashComputation));
-            }
-            return new HashComputationSet(builder.build());
-        }
+            Set<HashComputation> newHashes = hashes.stream()
+                    .map(hash -> hash.translate(translator))
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .collect(toImmutableSet());
 
-        public HashComputation lookup(HashComputation hashComputation)
-        {
-            return hashes.get(hashComputation);
+            return new HashComputationSet(newHashes);
         }
 
         public HashComputationSet withHashComputation(PlanNode node, Optional<HashComputation> hashComputation)
@@ -822,12 +826,12 @@ public class HashGenerationOptimizer
 
         public HashComputationSet withHashComputation(Optional<HashComputation> hashComputation)
         {
-            if (!hashComputation.isPresent() || hashes.containsKey(hashComputation.get())) {
+            if (!hashComputation.isPresent()) {
                 return this;
             }
-            return new HashComputationSet(ImmutableMap.<HashComputation, HashComputation>builder()
-                    .putAll(hashes)
-                    .put(hashComputation.get(), hashComputation.get())
+            return new HashComputationSet(ImmutableSet.<HashComputation>builder()
+                    .addAll(hashes)
+                    .add(hashComputation.get())
                     .build());
         }
     }

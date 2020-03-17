@@ -32,7 +32,9 @@ import static java.util.Locale.ENGLISH;
 
 public final class CassandraCqlUtils
 {
-    private CassandraCqlUtils() {}
+    private CassandraCqlUtils()
+    {
+    }
 
     private static final String[] KEYWORDS = {"ADD", "ALL", "ALLOW", "ALTER", "AND", "APPLY",
             "ASC", "ASCII", "AUTHORIZE", "BATCH", "BEGIN", "BIGINT", "BLOB", "BOOLEAN", "BY",

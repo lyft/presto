@@ -21,9 +21,11 @@ import io.prestosql.spi.type.StandardTypes;
 import static io.prestosql.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static io.prestosql.util.Failures.checkCondition;
 
-public final class WilsonInterval
+public class WilsonInterval
 {
-    private WilsonInterval() {}
+    private WilsonInterval()
+    {
+    }
 
     @ScalarFunction
     @Description("binomial confidence interval lower bound using Wilson score")

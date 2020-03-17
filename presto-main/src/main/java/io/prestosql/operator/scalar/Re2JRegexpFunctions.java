@@ -28,7 +28,9 @@ import io.prestosql.type.Re2JRegexpType;
 
 public final class Re2JRegexpFunctions
 {
-    private Re2JRegexpFunctions() {}
+    private Re2JRegexpFunctions()
+    {
+    }
 
     @Description("returns substrings matching a regular expression")
     @ScalarFunction

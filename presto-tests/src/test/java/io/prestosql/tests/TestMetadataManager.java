@@ -66,6 +66,9 @@ public class TestMetadataManager
                             throw new UnsupportedOperationException();
                         })
                         .withGetViews((session, prefix) -> ImmutableMap.of())
+                        .withGetColumnHandles((session, tableHandle) -> {
+                            throw new UnsupportedOperationException();
+                        })
                         .build();
                 return ImmutableList.of(connectorFactory);
             }

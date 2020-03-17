@@ -17,7 +17,7 @@ import io.prestosql.tempto.query.QueryExecutor;
 
 import static io.prestosql.tempto.context.ThreadLocalTestContextHolder.testContext;
 
-public final class QueryExecutors
+public class QueryExecutors
 {
     public static QueryExecutor onPresto()
     {

@@ -31,7 +31,7 @@ import java.util.UUID;
 import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
 
-public final class CassandraTestingUtils
+public class CassandraTestingUtils
 {
     public static final String TABLE_ALL_TYPES = "table_all_types";
     public static final String TABLE_ALL_TYPES_INSERT = "table_all_types_insert";

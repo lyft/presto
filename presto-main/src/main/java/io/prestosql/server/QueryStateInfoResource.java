@@ -80,8 +80,7 @@ public class QueryStateInfoResource
             return createQueuedQueryStateInfo(
                     queryInfo,
                     groupId,
-                    groupId.map(group -> resourceGroupManager.tryGetPathToRoot(group)
-                            .orElseThrow(() -> new IllegalStateException("Resource group not found: " + group))));
+                    groupId.map(resourceGroupManager::getPathToRoot));
         }
         return createQueryStateInfo(queryInfo, groupId);
     }

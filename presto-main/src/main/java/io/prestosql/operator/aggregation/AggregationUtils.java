@@ -31,7 +31,9 @@ import static java.util.Locale.ENGLISH;
 
 public final class AggregationUtils
 {
-    private AggregationUtils() {}
+    private AggregationUtils()
+    {
+    }
 
     public static void updateVarianceState(VarianceState state, double value)
     {

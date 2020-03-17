@@ -66,7 +66,7 @@ public class TestAnnotationEngineForScalars
 
     @ScalarFunction("single_implementation_parametric_scalar")
     @Description("Simple scalar with single implementation based on class")
-    public static final class SingleImplementationScalarFunction
+    public static class SingleImplementationScalarFunction
     {
         @SqlType(StandardTypes.DOUBLE)
         public static double fun(@SqlType(StandardTypes.DOUBLE) double v)
@@ -103,7 +103,7 @@ public class TestAnnotationEngineForScalars
 
     @ScalarFunction(value = "hidden_scalar_function", hidden = true)
     @Description("Simple scalar with hidden property set")
-    public static final class HiddenScalarFunction
+    public static class HiddenScalarFunction
     {
         @SqlType(StandardTypes.DOUBLE)
         public static double fun(@SqlType(StandardTypes.DOUBLE) double v)
@@ -125,7 +125,7 @@ public class TestAnnotationEngineForScalars
 
     @ScalarFunction(value = "non_deterministic_scalar_function", deterministic = false)
     @Description("Simple scalar with deterministic property reset")
-    public static final class NonDeterministicScalarFunction
+    public static class NonDeterministicScalarFunction
     {
         @SqlType(StandardTypes.DOUBLE)
         public static double fun(@SqlType(StandardTypes.DOUBLE) double v)
@@ -147,7 +147,7 @@ public class TestAnnotationEngineForScalars
 
     @ScalarFunction("scalar_with_nullable")
     @Description("Simple scalar with nullable primitive")
-    public static final class WithNullablePrimitiveArgScalarFunction
+    public static class WithNullablePrimitiveArgScalarFunction
     {
         @SqlType(StandardTypes.DOUBLE)
         public static double fun(
@@ -186,7 +186,7 @@ public class TestAnnotationEngineForScalars
 
     @ScalarFunction("scalar_with_nullable_complex")
     @Description("Simple scalar with nullable complex type")
-    public static final class WithNullableComplexArgScalarFunction
+    public static class WithNullableComplexArgScalarFunction
     {
         @SqlType(StandardTypes.DOUBLE)
         public static double fun(
@@ -222,7 +222,7 @@ public class TestAnnotationEngineForScalars
         assertEquals(specialized.getArgumentProperty(1), valueTypeArgumentProperty(USE_BOXED_TYPE));
     }
 
-    public static final class StaticMethodScalarFunction
+    public static class StaticMethodScalarFunction
     {
         @ScalarFunction("static_method_scalar")
         @Description("Simple scalar with single implementation based on method")
@@ -252,7 +252,7 @@ public class TestAnnotationEngineForScalars
         assertEquals(scalar.getDescription(), "Simple scalar with single implementation based on method");
     }
 
-    public static final class MultiScalarFunction
+    public static class MultiScalarFunction
     {
         @ScalarFunction("static_method_scalar_1")
         @Description("Simple scalar with single implementation based on method 1")
@@ -307,7 +307,7 @@ public class TestAnnotationEngineForScalars
 
     @ScalarFunction("parametric_scalar")
     @Description("Parametric scalar description")
-    public static final class ParametricScalarFunction
+    public static class ParametricScalarFunction
     {
         @SqlType("T")
         @TypeParameter("T")
@@ -349,7 +349,7 @@ public class TestAnnotationEngineForScalars
 
     @ScalarFunction("with_exact_scalar")
     @Description("Parametric scalar with exact and generic implementations")
-    public static final class ComplexParametricScalarFunction
+    public static class ComplexParametricScalarFunction
     {
         @SqlType(StandardTypes.BOOLEAN)
         @LiteralParameters("x")
@@ -400,7 +400,7 @@ public class TestAnnotationEngineForScalars
 
     @ScalarFunction("parametric_scalar_inject")
     @Description("Parametric scalar with literal injected")
-    public static final class SimpleInjectionScalarFunction
+    public static class SimpleInjectionScalarFunction
     {
         @SqlType(StandardTypes.BIGINT)
         @LiteralParameters("x")

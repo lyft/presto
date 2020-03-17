@@ -26,7 +26,9 @@ import static java.lang.String.format;
 
 public final class AllSimpleTypesTableDefinitions
 {
-    private AllSimpleTypesTableDefinitions() {}
+    private AllSimpleTypesTableDefinitions()
+    {
+    }
 
     private static String tableNameFormat = "%s_all_types";
 

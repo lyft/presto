@@ -16,7 +16,7 @@ package io.prestosql.tests;
 import io.prestosql.tempto.runner.TemptoRunner;
 import io.prestosql.tempto.runner.TemptoRunnerCommandLineParser;
 
-public final class TemptoProductTestRunner
+public class TemptoProductTestRunner
 {
     public static void main(String[] args)
     {

@@ -346,6 +346,9 @@ public class HiveWriterFactory
                     switch (insertExistingPartitionsBehavior) {
                         case APPEND:
                             checkState(!immutablePartitions);
+                            if (bucketNumber.isPresent()) {
+                                throw new PrestoException(HIVE_TABLE_READ_ONLY, "Cannot insert into bucketed unpartitioned Hive table");
+                            }
                             updateMode = UpdateMode.APPEND;
                             writeInfo = locationService.getTableWriteInfo(locationHandle, false);
                             break;
@@ -377,6 +380,9 @@ public class HiveWriterFactory
             if (insertExistingPartitionsBehavior == InsertExistingPartitionsBehavior.APPEND) {
                 // Append to an existing partition
                 checkState(!immutablePartitions);
+                if (bucketNumber.isPresent()) {
+                    throw new PrestoException(HIVE_PARTITION_READ_ONLY, "Cannot insert into existing partition of bucketed Hive table: " + partitionName.get());
+                }
                 updateMode = UpdateMode.APPEND;
                 // Check the column types in partition schema match the column types in table schema
                 List<Column> tableColumns = table.getDataColumns();

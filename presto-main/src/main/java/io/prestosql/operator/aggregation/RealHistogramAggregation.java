@@ -29,9 +29,11 @@ import static java.lang.Float.floatToRawIntBits;
 import static java.lang.Float.intBitsToFloat;
 
 @AggregationFunction("numeric_histogram")
-public final class RealHistogramAggregation
+public class RealHistogramAggregation
 {
-    private RealHistogramAggregation() {}
+    private RealHistogramAggregation()
+    {
+    }
 
     @InputFunction
     public static void add(@AggregationState DoubleHistogramAggregation.State state, @SqlType(StandardTypes.BIGINT) long buckets, @SqlType(StandardTypes.REAL) long value, @SqlType(StandardTypes.DOUBLE) double weight)

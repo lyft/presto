@@ -26,7 +26,7 @@ import static java.sql.JDBCType.BIGINT;
 import static java.sql.JDBCType.DOUBLE;
 import static java.sql.JDBCType.VARCHAR;
 
-public final class CassandraTpchTableDefinitions
+public class CassandraTpchTableDefinitions
 {
     private CassandraTpchTableDefinitions() {}
 

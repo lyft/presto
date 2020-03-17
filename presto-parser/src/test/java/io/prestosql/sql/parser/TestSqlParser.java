@@ -335,30 +335,6 @@ public class TestSqlParser
     }
 
     @Test
-    public void testAllColumns()
-    {
-        assertStatement("SELECT * FROM t", simpleQuery(
-                new Select(
-                        false,
-                        ImmutableList.of(
-                                new AllColumns(
-                                        Optional.empty(),
-                                        Optional.empty(),
-                                        ImmutableList.of()))),
-                table(QualifiedName.of("t"))));
-
-        assertStatement("SELECT r.* FROM t", simpleQuery(
-                new Select(
-                        false,
-                        ImmutableList.of(
-                                new AllColumns(
-                                        Optional.empty(),
-                                        Optional.of(new Identifier("r")),
-                                        ImmutableList.of()))),
-                table(QualifiedName.of("t"))));
-    }
-
-    @Test
     public void testDouble()
     {
         assertExpression("123E7", new DoubleLiteral("123E7"));
@@ -1758,9 +1734,9 @@ public class TestSqlParser
                         QualifiedName.of("t"),
                         new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("u")),
                         false));
-        assertStatement("GRANT DELETE ON \"t\" TO ROLE \"public\" WITH GRANT OPTION",
+        assertStatement("GRANT taco ON \"t\" TO ROLE \"public\" WITH GRANT OPTION",
                 new Grant(
-                        Optional.of(ImmutableList.of("DELETE")),
+                        Optional.of(ImmutableList.of("taco")),
                         false,
                         QualifiedName.of("t"),
                         new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("public")),
@@ -1791,10 +1767,10 @@ public class TestSqlParser
                         true,
                         QualifiedName.of("t"),
                         new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("u"))));
-        assertStatement("REVOKE DELETE ON TABLE \"t\" FROM \"u\"",
+        assertStatement("REVOKE taco ON TABLE \"t\" FROM \"u\"",
                 new Revoke(
                         false,
-                        Optional.of(ImmutableList.of("DELETE")),
+                        Optional.of(ImmutableList.of("taco")),
                         true,
                         QualifiedName.of("t"),
                         new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("u"))));

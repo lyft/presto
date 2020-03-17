@@ -20,9 +20,10 @@ import static java.lang.Double.max;
 import static java.lang.Double.min;
 import static java.util.stream.Stream.concat;
 
-public final class PlanNodeStatsEstimateMath
+public class PlanNodeStatsEstimateMath
 {
-    private PlanNodeStatsEstimateMath() {}
+    private PlanNodeStatsEstimateMath()
+    {}
 
     /**
      * Subtracts subset stats from supersets stats.

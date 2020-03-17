@@ -137,9 +137,6 @@ public class TestWorkProcessorPipelineSourceOperator
         assertTrue(operatorStats.get(1).getBlockedWall().toMillis() > 0);
         assertEquals(operatorStats.get(2).getBlockedWall().toMillis(), 0);
 
-        assertEquals(getTestingOperatorInfo(operatorStats.get(1)).count, 2);
-        assertEquals(getTestingOperatorInfo(operatorStats.get(2)).count, 2);
-
         assertEquals(pipelineOperator.getOutput().getPositionCount(), page5.getPositionCount());
 
         // sourceOperator should yield
@@ -154,13 +151,6 @@ public class TestWorkProcessorPipelineSourceOperator
         assertTrue(sourceOperatorFactory.sourceOperator.closed);
         assertTrue(firstOperatorFactory.operator.closed);
         assertFalse(secondOperatorFactory.operator.closed);
-
-        // first operator should return final operator info
-        assertEquals(getTestingOperatorInfo(operatorStats.get(1)).count, 3);
-        assertEquals(getTestingOperatorInfo(operatorStats.get(2)).count, 2);
-        operatorStats = pipelineOperator.getOperatorContext().getNestedOperatorStats();
-        assertEquals(getTestingOperatorInfo(operatorStats.get(1)).count, 3);
-        assertEquals(getTestingOperatorInfo(operatorStats.get(2)).count, 3);
 
         // cause early operator finish
         pipelineOperator.finish();
@@ -214,11 +204,6 @@ public class TestWorkProcessorPipelineSourceOperator
         assertEquals(sourceOperatorStats.getInputPositions(), pipelineOperatorStats.getInputPositions());
 
         assertEquals(sourceOperatorStats.getAddInputWall(), pipelineOperatorStats.getAddInputWall());
-    }
-
-    private TestOperatorInfo getTestingOperatorInfo(OperatorStats operatorStats)
-    {
-        return (TestOperatorInfo) operatorStats.getInfo();
     }
 
     private Split createSplit()
@@ -437,20 +422,12 @@ public class TestWorkProcessorPipelineSourceOperator
             implements WorkProcessorOperator
     {
         final WorkProcessor<Page> pages;
-        final TestOperatorInfo operatorInfo = new TestOperatorInfo();
 
         boolean closed;
 
         TestWorkProcessorOperator(WorkProcessor<Page> pages)
         {
             this.pages = pages;
-        }
-
-        @Override
-        public Optional<OperatorInfo> getOperatorInfo()
-        {
-            operatorInfo.count++;
-            return Optional.of(operatorInfo);
         }
 
         @Override
@@ -464,11 +441,5 @@ public class TestWorkProcessorPipelineSourceOperator
         {
             closed = true;
         }
-    }
-
-    private class TestOperatorInfo
-            implements OperatorInfo
-    {
-        int count;
     }
 }

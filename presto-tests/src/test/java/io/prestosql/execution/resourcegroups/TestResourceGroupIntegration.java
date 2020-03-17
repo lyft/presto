@@ -27,8 +27,8 @@ import static io.airlift.testing.Assertions.assertLessThan;
 import static io.airlift.units.Duration.nanosSince;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 public class TestResourceGroupIntegration
 {
@@ -57,13 +57,12 @@ public class TestResourceGroupIntegration
                     "resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json")));
 
             queryRunner.execute(testSessionBuilder().setCatalog("tpch").setSchema("tiny").setSource("dashboard-foo").build(), "SELECT COUNT(*), clerk FROM orders GROUP BY clerk");
-            List<ResourceGroupInfo> path = manager.tryGetPathToRoot(new ResourceGroupId(new ResourceGroupId(new ResourceGroupId("global"), "user-user"), "dashboard-user"))
-                    .orElseThrow(() -> new IllegalStateException("Resource group not found"));
+            List<ResourceGroupInfo> path = manager.getPathToRoot(new ResourceGroupId(new ResourceGroupId(new ResourceGroupId("global"), "user-user"), "dashboard-user"));
             assertEquals(path.size(), 3);
-            assertThat(path.get(1).getSubGroups()).isPresent();
+            assertTrue(path.get(1).getSubGroups() != null);
             assertEquals(path.get(2).getId(), new ResourceGroupId("global"));
             assertEquals(path.get(2).getHardConcurrencyLimit(), 100);
-            assertThat(path.get(2).getRunningQueries()).isNotPresent();
+            assertEquals(path.get(2).getRunningQueries(), null);
         }
     }
 
@@ -78,8 +77,7 @@ public class TestResourceGroupIntegration
         long startTime = System.nanoTime();
         while (true) {
             SECONDS.sleep(1);
-            ResourceGroupInfo global = getResourceGroupManager(queryRunner).tryGetResourceGroupInfo(new ResourceGroupId("global"))
-                    .orElseThrow(() -> new IllegalStateException("Resource group not found"));
+            ResourceGroupInfo global = getResourceGroupManager(queryRunner).getResourceGroupInfo(new ResourceGroupId("global"));
             if (global.getSoftMemoryLimit().toBytes() > 0) {
                 break;
             }

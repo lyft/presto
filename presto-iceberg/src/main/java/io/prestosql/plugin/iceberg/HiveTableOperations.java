@@ -58,8 +58,6 @@ import static java.lang.Integer.parseInt;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.UUID.randomUUID;
-import static org.apache.iceberg.BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE;
-import static org.apache.iceberg.BaseMetastoreTableOperations.TABLE_TYPE_PROP;
 import static org.apache.iceberg.TableMetadataParser.getFileExtension;
 import static org.apache.iceberg.TableProperties.METADATA_COMPRESSION;
 import static org.apache.iceberg.TableProperties.METADATA_COMPRESSION_DEFAULT;
@@ -74,6 +72,7 @@ public class HiveTableOperations
     public static final String METADATA_LOCATION = "metadata_location";
     public static final String PREVIOUS_METADATA_LOCATION = "previous_metadata_location";
     private static final String METADATA_FOLDER_NAME = "metadata";
+    private static final String ICEBERG_TABLE_TYPE = "ICEBERG";
 
     private static final StorageFormat STORAGE_FORMAT = StorageFormat.create(
             LazySimpleSerDe.class.getName(),
@@ -181,7 +180,7 @@ public class HiveTableOperations
                         .withStorage(storage -> storage.setLocation(metadata.location()))
                         .withStorage(storage -> storage.setStorageFormat(STORAGE_FORMAT))
                         .setParameter("EXTERNAL", "TRUE")
-                        .setParameter(TABLE_TYPE_PROP, ICEBERG_TABLE_TYPE_VALUE)
+                        .setParameter("table_type", ICEBERG_TABLE_TYPE)
                         .setParameter(METADATA_LOCATION, newMetadataLocation)
                         .build();
             }

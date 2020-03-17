@@ -26,7 +26,9 @@ import static io.prestosql.testing.TestingSession.testSessionBuilder;
 
 public final class BenchmarkQueryRunner
 {
-    private BenchmarkQueryRunner() {}
+    private BenchmarkQueryRunner()
+    {
+    }
 
     public static LocalQueryRunner createLocalQueryRunnerHashEnabled()
     {

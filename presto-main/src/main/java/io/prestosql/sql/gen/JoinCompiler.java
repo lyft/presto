@@ -679,6 +679,7 @@ public class JoinCompiler
             if (type.getJavaType().equals(Slice.class)) {
                 switch (type.getTypeSignature().getBase()) {
                     case StandardTypes.CHAR:
+                    case StandardTypes.IPADDRESS:
                     case StandardTypes.JSON:
                     case StandardTypes.DECIMAL:
                     case StandardTypes.VARBINARY:

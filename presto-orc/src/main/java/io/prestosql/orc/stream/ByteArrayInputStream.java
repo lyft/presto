@@ -44,6 +44,12 @@ public class ByteArrayInputStream
     }
 
     @Override
+    public Class<ByteArrayStreamCheckpoint> getCheckpointType()
+    {
+        return ByteArrayStreamCheckpoint.class;
+    }
+
+    @Override
     public void seekToCheckpoint(ByteArrayStreamCheckpoint checkpoint)
             throws IOException
     {

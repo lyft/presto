@@ -44,9 +44,11 @@ import static io.prestosql.util.Failures.checkCondition;
 import static java.util.Collections.nCopies;
 import static java.util.Objects.requireNonNull;
 
-public final class VarArgsToArrayAdapterGenerator
+public class VarArgsToArrayAdapterGenerator
 {
-    private VarArgsToArrayAdapterGenerator() {}
+    private VarArgsToArrayAdapterGenerator()
+    {
+    }
 
     public static class MethodHandleAndConstructor
     {

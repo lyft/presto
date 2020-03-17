@@ -38,7 +38,7 @@ import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static java.lang.Math.toIntExact;
 
 @AggregationFunction(value = NAME, decomposable = false, hidden = true)
-public final class SpatialPartitioningInternalAggregateFunction
+public class SpatialPartitioningInternalAggregateFunction
 {
     private static final int MAX_SAMPLE_COUNT = 1_000_000;
 

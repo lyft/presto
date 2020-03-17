@@ -60,7 +60,6 @@ import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.types.Type;
-import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types.NestedField;
 
 import java.io.IOException;
@@ -71,7 +70,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.prestosql.plugin.hive.HiveColumnHandle.updateRowIdHandle;
@@ -276,7 +274,7 @@ public class IcebergMetadata
         String schemaName = schemaTableName.getSchemaName();
         String tableName = schemaTableName.getTableName();
 
-        Schema schema = toIcebergSchema(tableMetadata.getColumns());
+        Schema schema = new Schema(toIceberg(tableMetadata.getColumns()));
 
         PartitionSpec partitionSpec = parsePartitionFields(schema, getPartitioning(tableMetadata.getProperties()));
 
@@ -461,7 +459,7 @@ public class IcebergMetadata
                 .collect(toImmutableList());
     }
 
-    private static Schema toIcebergSchema(List<ColumnMetadata> columns)
+    private static List<NestedField> toIceberg(List<ColumnMetadata> columns)
     {
         List<NestedField> icebergColumns = new ArrayList<>();
         for (ColumnMetadata column : columns) {
@@ -474,9 +472,7 @@ public class IcebergMetadata
                 icebergColumns.add(field);
             }
         }
-        Schema schema = new Schema(icebergColumns);
-        AtomicInteger nextFieldId = new AtomicInteger(1);
-        return TypeUtil.assignFreshIds(schema, nextFieldId::getAndIncrement);
+        return icebergColumns;
     }
 
     private Configuration getConfiguration(ConnectorSession session, String schemaName)

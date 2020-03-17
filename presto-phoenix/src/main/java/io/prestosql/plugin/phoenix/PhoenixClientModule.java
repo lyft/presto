@@ -24,9 +24,6 @@ import io.prestosql.plugin.jdbc.InternalBaseJdbc;
 import io.prestosql.plugin.jdbc.JdbcClient;
 import io.prestosql.plugin.jdbc.JdbcPageSinkProvider;
 import io.prestosql.plugin.jdbc.JdbcRecordSetProvider;
-import io.prestosql.plugin.jdbc.credential.ConfigFileBasedCredentialProvider;
-import io.prestosql.plugin.jdbc.credential.CredentialConfig;
-import io.prestosql.plugin.jdbc.credential.ExtraCredentialProvider;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorPageSinkProvider;
 import io.prestosql.spi.connector.ConnectorRecordSetProvider;
@@ -96,11 +93,9 @@ public class PhoenixClientModule
         return new DriverConnectionFactory(
                 DriverManager.getDriver(config.getConnectionUrl()),
                 config.getConnectionUrl(),
-                getConnectionProperties(config),
-                new ExtraCredentialProvider(
-                        Optional.empty(),
-                        Optional.empty(),
-                        new ConfigFileBasedCredentialProvider(new CredentialConfig())));
+                Optional.empty(),
+                Optional.empty(),
+                getConnectionProperties(config));
     }
 
     public static Properties getConnectionProperties(PhoenixConfig config)

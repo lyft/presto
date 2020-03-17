@@ -102,14 +102,10 @@ public class SqlServerClient
     }
 
     @Override
-    public Optional<ColumnMapping> toPrestoType(ConnectorSession session, Connection connection, JdbcTypeHandle typeHandle)
+    public Optional<ColumnMapping> toPrestoType(ConnectorSession session, Connection connection, JdbcTypeHandle type)
     {
-        Optional<ColumnMapping> mapping = getForcedMappingToVarchar(typeHandle);
-        if (mapping.isPresent()) {
-            return mapping;
-        }
         // TODO implement proper type mapping
-        return super.toPrestoType(session, connection, typeHandle)
+        return super.toPrestoType(session, connection, type)
                 .map(columnMapping -> new ColumnMapping(
                         columnMapping.getType(),
                         columnMapping.getReadFunction(),

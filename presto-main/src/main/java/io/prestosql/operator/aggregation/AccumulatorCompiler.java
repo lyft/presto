@@ -79,7 +79,9 @@ import static java.util.Objects.requireNonNull;
 
 public final class AccumulatorCompiler
 {
-    private AccumulatorCompiler() {}
+    private AccumulatorCompiler()
+    {
+    }
 
     public static GenericAccumulatorFactoryBinder generateAccumulatorFactoryBinder(AggregationMetadata metadata, DynamicClassLoader classLoader)
     {

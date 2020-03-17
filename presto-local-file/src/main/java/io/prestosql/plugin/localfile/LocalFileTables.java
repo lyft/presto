@@ -110,7 +110,7 @@ public class LocalFileTables
         }
     }
 
-    public static final class HttpRequestLogTable
+    public static class HttpRequestLogTable
     {
         private static final List<ColumnMetadata> COLUMNS = ImmutableList.of(
                 SERVER_ADDRESS_COLUMN,

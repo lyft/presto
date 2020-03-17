@@ -13,9 +13,6 @@
  */
 package io.prestosql.plugin.jdbc;
 
-import io.prestosql.plugin.jdbc.credential.ConfigFileBasedCredentialProvider;
-import io.prestosql.plugin.jdbc.credential.CredentialConfig;
-import io.prestosql.plugin.jdbc.credential.ExtraCredentialProvider;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorSplitSource;
 import io.prestosql.spi.connector.SchemaTableName;
@@ -25,6 +22,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -47,7 +45,7 @@ final class TestingDatabase
         jdbcClient = new BaseJdbcClient(
                 new BaseJdbcConfig(),
                 "\"",
-                new DriverConnectionFactory(new Driver(), connectionUrl, new Properties(), new ExtraCredentialProvider(new BaseJdbcConfig(), new ConfigFileBasedCredentialProvider(new CredentialConfig()))));
+                new DriverConnectionFactory(new Driver(), connectionUrl, Optional.empty(), Optional.empty(), new Properties()));
 
         connection = DriverManager.getConnection(connectionUrl);
         connection.createStatement().execute("CREATE SCHEMA example");

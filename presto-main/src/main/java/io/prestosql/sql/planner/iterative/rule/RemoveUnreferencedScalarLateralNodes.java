@@ -17,31 +17,31 @@ import io.prestosql.matching.Captures;
 import io.prestosql.matching.Pattern;
 import io.prestosql.sql.planner.iterative.Lookup;
 import io.prestosql.sql.planner.iterative.Rule;
-import io.prestosql.sql.planner.plan.CorrelatedJoinNode;
+import io.prestosql.sql.planner.plan.LateralJoinNode;
 import io.prestosql.sql.planner.plan.PlanNode;
 
 import static io.prestosql.sql.planner.optimizations.QueryCardinalityUtil.isScalar;
-import static io.prestosql.sql.planner.plan.Patterns.CorrelatedJoin.filter;
-import static io.prestosql.sql.planner.plan.Patterns.correlatedJoin;
+import static io.prestosql.sql.planner.plan.Patterns.LateralJoin.filter;
+import static io.prestosql.sql.planner.plan.Patterns.lateralJoin;
 import static io.prestosql.sql.tree.BooleanLiteral.TRUE_LITERAL;
 
 public class RemoveUnreferencedScalarLateralNodes
-        implements Rule<CorrelatedJoinNode>
+        implements Rule<LateralJoinNode>
 {
-    private static final Pattern<CorrelatedJoinNode> PATTERN = correlatedJoin()
+    private static final Pattern<LateralJoinNode> PATTERN = lateralJoin()
             .with(filter().equalTo(TRUE_LITERAL));
 
     @Override
-    public Pattern<CorrelatedJoinNode> getPattern()
+    public Pattern<LateralJoinNode> getPattern()
     {
         return PATTERN;
     }
 
     @Override
-    public Result apply(CorrelatedJoinNode correlatedJoinNode, Captures captures, Context context)
+    public Result apply(LateralJoinNode lateralJoinNode, Captures captures, Context context)
     {
-        PlanNode input = correlatedJoinNode.getInput();
-        PlanNode subquery = correlatedJoinNode.getSubquery();
+        PlanNode input = lateralJoinNode.getInput();
+        PlanNode subquery = lateralJoinNode.getSubquery();
 
         if (isUnreferencedScalar(input, context.getLookup())) {
             return Result.ofPlanNode(subquery);

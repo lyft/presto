@@ -493,13 +493,6 @@ public final class MetadataManager
     {
         requireNonNull(prefix, "prefix is null");
 
-        Optional<QualifiedObjectName> objectName = prefix.asQualifiedObjectName();
-        if (objectName.isPresent()) {
-            return getTableHandle(session, objectName.get())
-                    .map(handle -> ImmutableList.of(objectName.get()))
-                    .orElseGet(ImmutableList::of);
-        }
-
         Optional<CatalogMetadata> catalog = getOptionalCatalogMetadata(session, prefix.getCatalogName());
         Set<QualifiedObjectName> tables = new LinkedHashSet<>();
         if (catalog.isPresent()) {
@@ -874,13 +867,6 @@ public final class MetadataManager
     {
         requireNonNull(prefix, "prefix is null");
 
-        Optional<QualifiedObjectName> objectName = prefix.asQualifiedObjectName();
-        if (objectName.isPresent()) {
-            return getView(session, objectName.get())
-                    .map(handle -> ImmutableList.of(objectName.get()))
-                    .orElseGet(ImmutableList::of);
-        }
-
         Optional<CatalogMetadata> catalog = getOptionalCatalogMetadata(session, prefix.getCatalogName());
 
         Set<QualifiedObjectName> views = new LinkedHashSet<>();
@@ -940,16 +926,10 @@ public final class MetadataManager
     @Override
     public Optional<ConnectorViewDefinition> getView(Session session, QualifiedObjectName viewName)
     {
-        Optional<CatalogMetadata> catalog = getOptionalCatalogMetadata(session, viewName.getCatalogName());
-        if (catalog.isPresent()) {
-            CatalogMetadata catalogMetadata = catalog.get();
-            CatalogName catalogName = catalogMetadata.getConnectorId(session, viewName);
-            ConnectorMetadata metadata = catalogMetadata.getMetadataFor(catalogName);
-
-            ConnectorSession connectorSession = session.toConnectorSession(catalogName);
-            return metadata.getView(connectorSession, viewName.asSchemaTableName());
-        }
-        return Optional.empty();
+        return getOptionalCatalogMetadata(session, viewName.getCatalogName())
+                .flatMap(catalog -> catalog.getMetadata().getView(
+                        session.toConnectorSession(catalog.getCatalogName()),
+                        viewName.asSchemaTableName()));
     }
 
     @Override

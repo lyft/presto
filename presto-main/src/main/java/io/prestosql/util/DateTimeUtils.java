@@ -58,7 +58,9 @@ import static java.lang.String.format;
 
 public final class DateTimeUtils
 {
-    private DateTimeUtils() {}
+    private DateTimeUtils()
+    {
+    }
 
     private static final DateTimeFormatter DATE_FORMATTER = ISODateTimeFormat.date().withZoneUTC();
 

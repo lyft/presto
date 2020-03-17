@@ -29,7 +29,7 @@ import static io.prestosql.operator.aggregation.AggregationUtils.updateCorrelati
 import static io.prestosql.spi.type.DoubleType.DOUBLE;
 
 @AggregationFunction("corr")
-public final class DoubleCorrelationAggregation
+public class DoubleCorrelationAggregation
 {
     private DoubleCorrelationAggregation() {}
 

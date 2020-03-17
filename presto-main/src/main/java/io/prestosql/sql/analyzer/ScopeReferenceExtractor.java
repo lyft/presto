@@ -27,7 +27,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Extract expressions that are references to a given scope.
  */
-final class ScopeReferenceExtractor
+class ScopeReferenceExtractor
 {
     private ScopeReferenceExtractor() {}
 

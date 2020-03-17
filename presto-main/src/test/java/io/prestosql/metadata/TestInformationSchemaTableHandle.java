@@ -27,7 +27,6 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.util.Map;
-import java.util.OptionalLong;
 
 import static io.airlift.testing.Assertions.assertEqualsIgnoreOrder;
 import static org.testng.Assert.assertEquals;
@@ -61,8 +60,7 @@ public class TestInformationSchemaTableHandle
                 "information_schema_catalog",
                 "information_schema_schema",
                 "information_schema_table",
-                ImmutableSet.of(new QualifiedTablePrefix("abc", "xyz")),
-                OptionalLong.empty());
+                ImmutableSet.of(new QualifiedTablePrefix("abc", "xyz")));
 
         assertTrue(objectMapper.canSerialize(InformationSchemaTableHandle.class));
         String json = objectMapper.writeValueAsString(informationSchemaTableHandle);

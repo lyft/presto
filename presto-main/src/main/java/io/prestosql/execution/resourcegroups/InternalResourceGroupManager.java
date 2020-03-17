@@ -41,7 +41,6 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -52,6 +51,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
@@ -92,19 +92,17 @@ public final class InternalResourceGroupManager<C>
     }
 
     @Override
-    public Optional<ResourceGroupInfo> tryGetResourceGroupInfo(ResourceGroupId id)
+    public ResourceGroupInfo getResourceGroupInfo(ResourceGroupId id)
     {
-        InternalResourceGroup resourceGroup = groups.get(id);
-        return Optional.ofNullable(resourceGroup)
-                .map(InternalResourceGroup::getFullInfo);
+        checkArgument(groups.containsKey(id), "Group %s does not exist", id);
+        return groups.get(id).getFullInfo();
     }
 
     @Override
-    public Optional<List<ResourceGroupInfo>> tryGetPathToRoot(ResourceGroupId id)
+    public List<ResourceGroupInfo> getPathToRoot(ResourceGroupId id)
     {
-        InternalResourceGroup resourceGroup = groups.get(id);
-        return Optional.ofNullable(resourceGroup)
-                .map(InternalResourceGroup::getPathToRoot);
+        checkArgument(groups.containsKey(id), "Group %s does not exist", id);
+        return groups.get(id).getPathToRoot();
     }
 
     @Override
@@ -209,7 +207,7 @@ public final class InternalResourceGroupManager<C>
                 log.error(e, "Exception while generation cpu quota for %s", group);
             }
             try {
-                group.updateGroupsAndProcessQueuedQueries();
+                group.processQueuedQueries();
             }
             catch (RuntimeException e) {
                 log.error(e, "Exception while processing queued queries for %s", group);

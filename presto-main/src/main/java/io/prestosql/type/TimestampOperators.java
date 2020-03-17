@@ -57,7 +57,9 @@ import static io.prestosql.util.DateTimeZoneIndex.getChronology;
 
 public final class TimestampOperators
 {
-    private TimestampOperators() {}
+    private TimestampOperators()
+    {
+    }
 
     @ScalarOperator(SUBTRACT)
     @SqlType(StandardTypes.INTERVAL_DAY_TO_SECOND)
@@ -227,7 +229,7 @@ public final class TimestampOperators
     }
 
     @ScalarOperator(IS_DISTINCT_FROM)
-    public static final class TimestampDistinctFromOperator
+    public static class TimestampDistinctFromOperator
     {
         @SqlType(StandardTypes.BOOLEAN)
         public static boolean isDistinctFrom(

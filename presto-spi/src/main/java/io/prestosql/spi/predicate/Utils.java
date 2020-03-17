@@ -23,7 +23,9 @@ import static java.lang.String.format;
 
 public final class Utils
 {
-    private Utils() {}
+    private Utils()
+    {
+    }
 
     public static Block nativeValueToBlock(Type type, Object object)
     {
