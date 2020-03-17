@@ -16,10 +16,11 @@ package io.prestosql.plugin.hive;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.bootstrap.LifeCycleManager;
-import io.airlift.log.Logger;
+import io.prestosql.plugin.base.classloader.ClassLoaderSafeConnectorMetadata;
 import io.prestosql.spi.classloader.ThreadContextClassLoader;
 import io.prestosql.spi.connector.Connector;
 import io.prestosql.spi.connector.ConnectorAccessControl;
+import io.prestosql.spi.connector.ConnectorHandleResolver;
 import io.prestosql.spi.connector.ConnectorMetadata;
 import io.prestosql.spi.connector.ConnectorNodePartitioningProvider;
 import io.prestosql.spi.connector.ConnectorPageSinkProvider;
@@ -27,14 +28,13 @@ import io.prestosql.spi.connector.ConnectorPageSourceProvider;
 import io.prestosql.spi.connector.ConnectorSplitManager;
 import io.prestosql.spi.connector.ConnectorTransactionHandle;
 import io.prestosql.spi.connector.SystemTable;
-import io.prestosql.spi.connector.classloader.ClassLoaderSafeConnectorMetadata;
 import io.prestosql.spi.procedure.Procedure;
 import io.prestosql.spi.session.PropertyMetadata;
 import io.prestosql.spi.transaction.IsolationLevel;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.prestosql.spi.transaction.IsolationLevel.READ_UNCOMMITTED;
@@ -44,10 +44,8 @@ import static java.util.Objects.requireNonNull;
 public class HiveConnector
         implements Connector
 {
-    private static final Logger log = Logger.get(HiveConnector.class);
-
     private final LifeCycleManager lifeCycleManager;
-    private final Supplier<TransactionalMetadata> metadataFactory;
+    private final TransactionalMetadataFactory metadataFactory;
     private final ConnectorSplitManager splitManager;
     private final ConnectorPageSourceProvider pageSourceProvider;
     private final ConnectorPageSinkProvider pageSinkProvider;
@@ -66,7 +64,7 @@ public class HiveConnector
 
     public HiveConnector(
             LifeCycleManager lifeCycleManager,
-            Supplier<TransactionalMetadata> metadataFactory,
+            TransactionalMetadataFactory metadataFactory,
             HiveTransactionManager transactionManager,
             ConnectorSplitManager splitManager,
             ConnectorPageSourceProvider pageSourceProvider,
@@ -96,6 +94,12 @@ public class HiveConnector
         this.analyzeProperties = ImmutableList.copyOf(requireNonNull(analyzeProperties, "analyzeProperties is null"));
         this.accessControl = requireNonNull(accessControl, "accessControl is null");
         this.classLoader = requireNonNull(classLoader, "classLoader is null");
+    }
+
+    @Override
+    public Optional<ConnectorHandleResolver> getHandleResolver()
+    {
+        return Optional.of(new HiveHandleResolver());
     }
 
     @Override
@@ -184,7 +188,7 @@ public class HiveConnector
         checkConnectorSupports(READ_UNCOMMITTED, isolationLevel);
         ConnectorTransactionHandle transaction = new HiveTransactionHandle();
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            transactionManager.put(transaction, metadataFactory.get());
+            transactionManager.put(transaction, metadataFactory.create());
         }
         return transaction;
     }
@@ -212,11 +216,6 @@ public class HiveConnector
     @Override
     public final void shutdown()
     {
-        try {
-            lifeCycleManager.stop();
-        }
-        catch (Exception e) {
-            log.error(e, "Error shutting down connector");
-        }
+        lifeCycleManager.stop();
     }
 }

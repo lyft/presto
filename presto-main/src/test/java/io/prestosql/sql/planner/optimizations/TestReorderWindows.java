@@ -248,7 +248,7 @@ public class TestReorderWindows
                                         .specification(windowA)
                                         .addFunction(functionCall("avg", commonFrame, ImmutableList.of(QUANTITY_ALIAS))),
                                 project(
-                                        filter(RECEIPTDATE_ALIAS + " IS NOT NULL",
+                                        filter("NOT (" + RECEIPTDATE_ALIAS + " IS NULL)",
                                                 window(windowMatcherBuilder -> windowMatcherBuilder
                                                                 .specification(windowApp)
                                                                 .addFunction(functionCall("avg", commonFrame, ImmutableList.of(DISCOUNT_ALIAS))),
@@ -322,8 +322,8 @@ public class TestReorderWindows
     private void assertUnitPlan(@Language("SQL") String sql, PlanMatchPattern pattern)
     {
         List<PlanOptimizer> optimizers = ImmutableList.of(
-                new UnaliasSymbolReferences(),
-                new PredicatePushDown(getQueryRunner().getMetadata(), new TypeAnalyzer(getQueryRunner().getSqlParser(), getQueryRunner().getMetadata())),
+                new UnaliasSymbolReferences(getQueryRunner().getMetadata()),
+                new PredicatePushDown(getQueryRunner().getMetadata(), new TypeAnalyzer(getQueryRunner().getSqlParser(), getQueryRunner().getMetadata()), false, false),
                 new IterativeOptimizer(
                         new RuleStatsRecorder(),
                         getQueryRunner().getStatsCalculator(),

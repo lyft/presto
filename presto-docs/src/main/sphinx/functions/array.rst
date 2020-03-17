@@ -2,12 +2,16 @@
 Array Functions and Operators
 =============================
 
+.. _subscript_operator:
+
 Subscript Operator: []
 ----------------------
 
 The ``[]`` operator is used to access an element of an array and is indexed starting from one::
 
     SELECT my_array[1] AS first_element
+
+.. _concatenation_operator:
 
 Concatenation Operator: ||
 --------------------------
@@ -141,7 +145,9 @@ Array Functions
 .. function:: element_at(array(E), index) -> E
 
     Returns element of ``array`` at given ``index``.
-    If ``index`` > 0, this function provides the same functionality as the SQL-standard subscript operator (``[]``).
+    If ``index`` > 0, this function provides the same functionality as the SQL-standard subscript operator (``[]``),
+    except that the function returns ``NULL`` when accessing an ``index`` larger than array length, whereas
+    the subscript operator would fail in such a case.
     If ``index`` < 0, ``element_at`` accesses elements from the last to the first.
 
 .. function:: filter(array(T), function(T,boolean)) -> array(T)

@@ -194,7 +194,7 @@ public class PruneUnreferencedOutputs
             }
 
             ImmutableSet.Builder<Symbol> leftInputsBuilder = ImmutableSet.builder();
-            leftInputsBuilder.addAll(context.get()).addAll(Iterables.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft));
+            leftInputsBuilder.addAll(context.get()).addAll(node.getCriteria().stream().map(JoinNode.EquiJoinClause::getLeft).iterator());
             if (node.getLeftHashSymbol().isPresent()) {
                 leftInputsBuilder.add(node.getLeftHashSymbol().get());
             }
@@ -240,7 +240,8 @@ public class PruneUnreferencedOutputs
                     node.getRightHashSymbol(),
                     node.getDistributionType(),
                     node.isSpillable(),
-                    node.getDynamicFilters());
+                    node.getDynamicFilters(),
+                    node.getReorderJoinStatsAndCost());
         }
 
         @Override
@@ -357,7 +358,6 @@ public class PruneUnreferencedOutputs
                 if (context.get().contains(symbol)) {
                     Aggregation aggregation = entry.getValue();
                     expectedInputs.addAll(SymbolsExtractor.extractUnique(aggregation));
-                    aggregation.getMask().ifPresent(expectedInputs::add);
                     aggregations.put(symbol, aggregation);
                 }
             }
@@ -524,9 +524,15 @@ public class PruneUnreferencedOutputs
             ImmutableSet.Builder<Symbol> expectedInputs = ImmutableSet.<Symbol>builder()
                     .addAll(replicateSymbols)
                     .addAll(unnestSymbols.keySet());
+            ImmutableSet.Builder<Symbol> unnestedSymbols = ImmutableSet.builder();
+            for (List<Symbol> symbols : unnestSymbols.values()) {
+                unnestedSymbols.addAll(symbols);
+            }
+            Set<Symbol> expectedFilterSymbols = Sets.difference(SymbolsExtractor.extractUnique(node.getFilter().orElse(TRUE_LITERAL)), unnestedSymbols.build());
+            expectedInputs.addAll(expectedFilterSymbols);
 
             PlanNode source = context.rewrite(node.getSource(), expectedInputs.build());
-            return new UnnestNode(node.getId(), source, replicateSymbols, unnestSymbols, ordinalitySymbol);
+            return new UnnestNode(node.getId(), source, replicateSymbols, unnestSymbols, ordinalitySymbol, node.getJoinType(), node.getFilter());
         }
 
         @Override
@@ -846,13 +852,13 @@ public class PruneUnreferencedOutputs
 
             PlanNode subquery = context.rewrite(node.getSubquery(), expectedFilterAndContextSymbols);
 
-            // remove unused lateral nodes
+            // remove unused correlated join nodes
             if (intersection(ImmutableSet.copyOf(subquery.getOutputSymbols()), context.get()).isEmpty()) {
-                // remove unused lateral subquery of inner join
+                // remove unused subquery of inner join
                 if (node.getType() == INNER && isScalar(subquery) && node.getFilter().equals(TRUE_LITERAL)) {
                     return context.rewrite(node.getInput(), context.get());
                 }
-                // remove unused lateral subquery of left join
+                // remove unused subquery of left join
                 if (node.getType() == LEFT && isAtMostScalar(subquery)) {
                     return context.rewrite(node.getInput(), context.get());
                 }

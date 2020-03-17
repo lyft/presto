@@ -35,6 +35,7 @@ public class HiveS3Config
     private String s3AwsAccessKey;
     private String s3AwsSecretKey;
     private String s3Endpoint;
+    private PrestoS3StorageClass s3StorageClass = PrestoS3StorageClass.STANDARD;
     private PrestoS3SignerType s3SignerType;
     private String s3SignerClass;
     private boolean s3PathStyleAccess;
@@ -54,8 +55,8 @@ public class HiveS3Config
     private Duration s3SocketTimeout = new Duration(5, TimeUnit.SECONDS);
     private int s3MaxConnections = 500;
     private File s3StagingDirectory = new File(StandardSystemProperty.JAVA_IO_TMPDIR.value());
-    private DataSize s3MultipartMinFileSize = new DataSize(16, MEGABYTE);
-    private DataSize s3MultipartMinPartSize = new DataSize(5, MEGABYTE);
+    private DataSize s3MultipartMinFileSize = DataSize.of(16, MEGABYTE);
+    private DataSize s3MultipartMinPartSize = DataSize.of(5, MEGABYTE);
     private boolean pinS3ClientToCurrentRegion;
     private String s3UserAgentPrefix = "";
     private PrestoS3AclType s3AclType = PrestoS3AclType.PRIVATE;
@@ -96,6 +97,20 @@ public class HiveS3Config
     public HiveS3Config setS3Endpoint(String s3Endpoint)
     {
         this.s3Endpoint = s3Endpoint;
+        return this;
+    }
+
+    @NotNull
+    public PrestoS3StorageClass getS3StorageClass()
+    {
+        return s3StorageClass;
+    }
+
+    @Config("hive.s3.storage-class")
+    @ConfigDescription("AWS S3 storage class to use when writing the data")
+    public HiveS3Config setS3StorageClass(PrestoS3StorageClass s3StorageClass)
+    {
+        this.s3StorageClass = s3StorageClass;
         return this;
     }
 

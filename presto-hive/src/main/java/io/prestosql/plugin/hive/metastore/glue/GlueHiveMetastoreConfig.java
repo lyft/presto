@@ -17,6 +17,7 @@ import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.ConfigSecuritySensitive;
 
+import javax.validation.constraints.Max;
 import javax.validation.constraints.Min;
 
 import java.util.Optional;
@@ -30,7 +31,11 @@ public class GlueHiveMetastoreConfig
     private Optional<String> iamRole = Optional.empty();
     private Optional<String> awsAccessKey = Optional.empty();
     private Optional<String> awsSecretKey = Optional.empty();
+    private Optional<String> awsCredentialsProvider = Optional.empty();
+    private boolean useInstanceCredentials;
     private Optional<String> catalogId = Optional.empty();
+    private int partitionSegments = 5;
+    private int getPartitionThreads = 20;
 
     public Optional<String> getGlueRegion()
     {
@@ -135,6 +140,59 @@ public class GlueHiveMetastoreConfig
     public GlueHiveMetastoreConfig setCatalogId(String catalogId)
     {
         this.catalogId = Optional.ofNullable(catalogId);
+        return this;
+    }
+
+    public boolean isUseInstanceCredentials()
+    {
+        return useInstanceCredentials;
+    }
+
+    @Config("hive.metastore.glue.use-instance-credentials")
+    public GlueHiveMetastoreConfig setUseInstanceCredentials(boolean useInstanceCredentials)
+    {
+        this.useInstanceCredentials = useInstanceCredentials;
+        return this;
+    }
+
+    public Optional<String> getAwsCredentialsProvider()
+    {
+        return awsCredentialsProvider;
+    }
+
+    @Config("hive.metastore.glue.aws-credentials-provider")
+    public GlueHiveMetastoreConfig setAwsCredentialsProvider(String awsCredentialsProvider)
+    {
+        this.awsCredentialsProvider = Optional.ofNullable(awsCredentialsProvider);
+        return this;
+    }
+
+    @Min(1)
+    @Max(10)
+    public int getPartitionSegments()
+    {
+        return partitionSegments;
+    }
+
+    @Config("hive.metastore.glue.partitions-segments")
+    @ConfigDescription("Number of segments for partitioned Glue tables")
+    public GlueHiveMetastoreConfig setPartitionSegments(int partitionSegments)
+    {
+        this.partitionSegments = partitionSegments;
+        return this;
+    }
+
+    @Min(1)
+    public int getGetPartitionThreads()
+    {
+        return getPartitionThreads;
+    }
+
+    @Config("hive.metastore.glue.get-partition-threads")
+    @ConfigDescription("Number of threads for parallel partition fetches from Glue")
+    public GlueHiveMetastoreConfig setGetPartitionThreads(int getPartitionThreads)
+    {
+        this.getPartitionThreads = getPartitionThreads;
         return this;
     }
 }

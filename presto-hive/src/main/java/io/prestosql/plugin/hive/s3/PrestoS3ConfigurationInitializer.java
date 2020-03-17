@@ -15,6 +15,7 @@ package io.prestosql.plugin.hive.s3;
 
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
+import io.prestosql.plugin.hive.ConfigurationInitializer;
 import org.apache.hadoop.conf.Configuration;
 
 import javax.inject.Inject;
@@ -48,6 +49,7 @@ import static io.prestosql.plugin.hive.s3.PrestoS3FileSystem.S3_SSE_KMS_KEY_ID;
 import static io.prestosql.plugin.hive.s3.PrestoS3FileSystem.S3_SSE_TYPE;
 import static io.prestosql.plugin.hive.s3.PrestoS3FileSystem.S3_SSL_ENABLED;
 import static io.prestosql.plugin.hive.s3.PrestoS3FileSystem.S3_STAGING_DIRECTORY;
+import static io.prestosql.plugin.hive.s3.PrestoS3FileSystem.S3_STORAGE_CLASS;
 import static io.prestosql.plugin.hive.s3.PrestoS3FileSystem.S3_USER_AGENT_PREFIX;
 import static io.prestosql.plugin.hive.s3.PrestoS3FileSystem.S3_USE_INSTANCE_CREDENTIALS;
 
@@ -57,6 +59,7 @@ public class PrestoS3ConfigurationInitializer
     private final String awsAccessKey;
     private final String awsSecretKey;
     private final String endpoint;
+    private final PrestoS3StorageClass s3StorageClass;
     private final PrestoS3SignerType signerType;
     private final boolean pathStyleAccess;
     private final boolean useInstanceCredentials;
@@ -82,7 +85,7 @@ public class PrestoS3ConfigurationInitializer
     private final PrestoS3AclType aclType;
     private final String signerClass;
     private final boolean requesterPaysEnabled;
-    private boolean skipGlacierObjects;
+    private final boolean skipGlacierObjects;
 
     @Inject
     public PrestoS3ConfigurationInitializer(HiveS3Config config)
@@ -90,6 +93,7 @@ public class PrestoS3ConfigurationInitializer
         this.awsAccessKey = config.getS3AwsAccessKey();
         this.awsSecretKey = config.getS3AwsSecretKey();
         this.endpoint = config.getS3Endpoint();
+        this.s3StorageClass = config.getS3StorageClass();
         this.signerType = config.getS3SignerType();
         this.signerClass = config.getS3SignerClass();
         this.pathStyleAccess = config.isS3PathStyleAccess();
@@ -135,6 +139,7 @@ public class PrestoS3ConfigurationInitializer
         if (endpoint != null) {
             config.set(S3_ENDPOINT, endpoint);
         }
+        config.set(S3_STORAGE_CLASS, s3StorageClass.name());
         if (signerType != null) {
             config.set(S3_SIGNER_TYPE, signerType.name());
         }

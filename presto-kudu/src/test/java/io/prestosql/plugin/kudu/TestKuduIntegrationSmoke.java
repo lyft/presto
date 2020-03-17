@@ -13,71 +13,55 @@
  */
 package io.prestosql.plugin.kudu;
 
-import io.prestosql.spi.type.VarcharType;
+import io.prestosql.testing.AbstractTestIntegrationSmokeTest;
 import io.prestosql.testing.MaterializedResult;
-import io.prestosql.testing.MaterializedRow;
 import io.prestosql.testing.QueryRunner;
-import io.prestosql.tests.AbstractTestIntegrationSmokeTest;
 import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.util.regex.Pattern;
 
-import static io.airlift.tpch.TpchTable.ORDERS;
+import static io.prestosql.plugin.kudu.KuduQueryRunnerFactory.createKuduQueryRunnerTpch;
+import static io.prestosql.spi.type.VarcharType.VARCHAR;
+import static io.prestosql.testing.MaterializedResult.resultBuilder;
 import static io.prestosql.testing.assertions.Assert.assertEquals;
-import static java.lang.String.format;
+import static io.prestosql.tpch.TpchTable.ORDERS;
 import static org.testng.Assert.assertTrue;
 
 public class TestKuduIntegrationSmoke
         extends AbstractTestIntegrationSmokeTest
 {
-    public static final String SCHEMA = "tpch";
-
-    private QueryRunner queryRunner;
-
-    public TestKuduIntegrationSmoke()
+    @Override
+    protected QueryRunner createQueryRunner()
+            throws Exception
     {
-        super(() -> KuduQueryRunnerFactory.createKuduQueryRunnerTpch(ORDERS));
+        return createKuduQueryRunnerTpch(ORDERS);
     }
 
-    @BeforeClass
-    public void setUp()
-    {
-        queryRunner = getQueryRunner();
-    }
-
-    /**
-     * Overrides original implementation because of usage of 'extra' column.
-     */
     @Test
     @Override
     public void testDescribeTable()
     {
-        MaterializedResult actualColumns = this.computeActual("DESC orders").toTestTypes();
-        MaterializedResult.Builder builder = MaterializedResult.resultBuilder(this.getQueryRunner().getDefaultSession(), VarcharType.VARCHAR, VarcharType.VARCHAR, VarcharType.VARCHAR, VarcharType.VARCHAR);
-        for (MaterializedRow row : actualColumns.getMaterializedRows()) {
-            builder.row(row.getField(0), row.getField(1), "", "");
-        }
-        MaterializedResult filteredActual = builder.build();
-        builder = MaterializedResult.resultBuilder(this.getQueryRunner().getDefaultSession(), VarcharType.VARCHAR, VarcharType.VARCHAR, VarcharType.VARCHAR, VarcharType.VARCHAR);
-        MaterializedResult expectedColumns = builder
-                .row("orderkey", "bigint", "", "")
-                .row("custkey", "bigint", "", "")
-                .row("orderstatus", "varchar", "", "")
-                .row("totalprice", "double", "", "")
-                .row("orderdate", "varchar", "", "")
-                .row("orderpriority", "varchar", "", "")
-                .row("clerk", "varchar", "", "")
-                .row("shippriority", "integer", "", "")
-                .row("comment", "varchar", "", "").build();
-        assertEquals(filteredActual, expectedColumns, format("%s != %s", filteredActual, expectedColumns));
+        String extra = "nullable, encoding=auto, compression=default";
+        MaterializedResult expectedColumns = resultBuilder(getQueryRunner().getDefaultSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+                .row("orderkey", "bigint", extra, "")
+                .row("custkey", "bigint", extra, "")
+                .row("orderstatus", "varchar", extra, "")
+                .row("totalprice", "double", extra, "")
+                .row("orderdate", "varchar", extra, "")
+                .row("orderpriority", "varchar", extra, "")
+                .row("clerk", "varchar", extra, "")
+                .row("shippriority", "integer", extra, "")
+                .row("comment", "varchar", extra, "")
+                .build();
+        MaterializedResult actualColumns = computeActual("DESCRIBE orders");
+        assertEquals(actualColumns, expectedColumns);
     }
 
     @Test
     public void testShowCreateTable()
     {
-        queryRunner.execute("CREATE TABLE IF NOT EXISTS test_show_create_table (\n" +
+        assertUpdate("CREATE TABLE IF NOT EXISTS test_show_create_table (\n" +
                 "id INT WITH (primary_key=true),\n" +
                 "user_name VARCHAR\n" +
                 ") WITH (\n" +
@@ -86,12 +70,59 @@ public class TestKuduIntegrationSmoke
                 " number_of_replicas = 1\n" +
                 ")");
 
-        MaterializedResult result = queryRunner.execute("SHOW CREATE TABLE test_show_create_table");
+        MaterializedResult result = computeActual("SHOW CREATE TABLE test_show_create_table");
         String sqlStatement = (String) result.getOnlyValue();
         String tableProperties = sqlStatement.split("\\)\\s*WITH\\s*\\(")[1];
         assertTableProperty(tableProperties, "number_of_replicas", "1");
         assertTableProperty(tableProperties, "partition_by_hash_columns", Pattern.quote("ARRAY['id']"));
         assertTableProperty(tableProperties, "partition_by_hash_buckets", "2");
+
+        assertUpdate("DROP TABLE test_show_create_table");
+    }
+
+    @Test
+    public void testRowDelete()
+    {
+        assertUpdate("CREATE TABLE IF NOT EXISTS test_row_delete (" +
+                "id INT WITH (primary_key=true), " +
+                "second_id INT, " +
+                "user_name VARCHAR" +
+                ") WITH (" +
+                " partition_by_hash_columns = ARRAY['id'], " +
+                " partition_by_hash_buckets = 2" +
+                ")");
+
+        assertUpdate("INSERT INTO test_row_delete VALUES (0, 1, 'user0'), (3, 4, 'user2'), (2, 3, 'user2'), (1, 2, 'user1')", 4);
+        assertQuery("SELECT count(*) FROM test_row_delete", "VALUES 4");
+
+        assertUpdate("DELETE FROM test_row_delete WHERE second_id = 4", 1);
+        assertQuery("SELECT count(*) FROM test_row_delete", "VALUES 3");
+
+        assertUpdate("DELETE FROM test_row_delete WHERE user_name = 'user1'", 1);
+        assertQuery("SELECT count(*) FROM test_row_delete", "VALUES 2");
+
+        assertUpdate("DELETE FROM test_row_delete WHERE id = 0", 1);
+        assertQuery("SELECT * FROM test_row_delete", "VALUES (2, 3, 'user2')");
+
+        assertUpdate("DROP TABLE test_row_delete");
+    }
+
+    @Test
+    public void testProjection()
+    {
+        assertUpdate("CREATE TABLE IF NOT EXISTS test_projection (" +
+                "id INT WITH (primary_key=true), " +
+                "user_name VARCHAR " +
+                ") WITH (" +
+                " partition_by_hash_columns = ARRAY['id'], " +
+                " partition_by_hash_buckets = 2" +
+                ")");
+
+        assertUpdate("INSERT INTO test_projection VALUES (0, 'user0'), (2, 'user2'), (1, 'user1')", 3);
+
+        assertQuery("SELECT id, 'test' FROM test_projection ORDER BY id", "VALUES (0, 'test'), (1, 'test'), (2, 'test')");
+
+        assertUpdate("DROP TABLE test_projection");
     }
 
     private void assertTableProperty(String tableProperties, String key, String regexValue)
@@ -103,7 +134,7 @@ public class TestKuduIntegrationSmoke
     @AfterClass(alwaysRun = true)
     public final void destroy()
     {
-        queryRunner.close();
-        queryRunner = null;
+        assertUpdate("DROP TABLE " + ORDERS.getTableName());
+        getQueryRunner().close();
     }
 }

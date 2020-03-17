@@ -19,8 +19,10 @@ import io.airlift.slice.Slices;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.spi.block.Block;
 import io.prestosql.spi.block.BlockBuilder;
+import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.Decimals;
 import io.prestosql.spi.type.MapType;
+import io.prestosql.spi.type.RowType;
 import io.prestosql.spi.type.SqlDecimal;
 import io.prestosql.spi.type.StandardTypes;
 import io.prestosql.spi.type.Type;
@@ -63,8 +65,8 @@ public final class StructuralTestUtil
     public static MapType mapType(Type keyType, Type valueType)
     {
         return (MapType) METADATA.getParameterizedType(StandardTypes.MAP, ImmutableList.of(
-                TypeSignatureParameter.of(keyType.getTypeSignature()),
-                TypeSignatureParameter.of(valueType.getTypeSignature())));
+                TypeSignatureParameter.typeParameter(keyType.getTypeSignature()),
+                TypeSignatureParameter.typeParameter(valueType.getTypeSignature())));
     }
 
     public static void appendToBlockBuilder(Type type, Object element, BlockBuilder blockBuilder)
@@ -73,14 +75,14 @@ public final class StructuralTestUtil
         if (element == null) {
             blockBuilder.appendNull();
         }
-        else if (type.getTypeSignature().getBase().equals(StandardTypes.ARRAY) && element instanceof Iterable<?>) {
+        else if (type instanceof ArrayType && element instanceof Iterable<?>) {
             BlockBuilder subBlockBuilder = blockBuilder.beginBlockEntry();
             for (Object subElement : (Iterable<?>) element) {
                 appendToBlockBuilder(type.getTypeParameters().get(0), subElement, subBlockBuilder);
             }
             blockBuilder.closeEntry();
         }
-        else if (type.getTypeSignature().getBase().equals(StandardTypes.ROW) && element instanceof Iterable<?>) {
+        else if (type instanceof RowType && element instanceof Iterable<?>) {
             BlockBuilder subBlockBuilder = blockBuilder.beginBlockEntry();
             int field = 0;
             for (Object subElement : (Iterable<?>) element) {
@@ -89,7 +91,7 @@ public final class StructuralTestUtil
             }
             blockBuilder.closeEntry();
         }
-        else if (type.getTypeSignature().getBase().equals(StandardTypes.MAP) && element instanceof Map<?, ?>) {
+        else if (type instanceof MapType && element instanceof Map<?, ?>) {
             BlockBuilder subBlockBuilder = blockBuilder.beginBlockEntry();
             for (Map.Entry<?, ?> entry : ((Map<?, ?>) element).entrySet()) {
                 appendToBlockBuilder(type.getTypeParameters().get(0), entry.getKey(), subBlockBuilder);

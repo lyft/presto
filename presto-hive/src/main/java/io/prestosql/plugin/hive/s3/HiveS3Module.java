@@ -14,9 +14,11 @@
 package io.prestosql.plugin.hive.s3;
 
 import com.google.inject.Binder;
+import com.google.inject.Provider;
 import com.google.inject.Scopes;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
-import io.prestosql.plugin.hive.HiveConfig;
+import io.prestosql.plugin.hive.ConfigurationInitializer;
+import io.prestosql.plugin.hive.HiveCatalogName;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.JavaUtils;
 
@@ -32,18 +34,22 @@ public class HiveS3Module
     @Override
     protected void setup(Binder binder)
     {
-        S3FileSystemType type = buildConfigObject(HiveConfig.class).getS3FileSystemType();
+        S3FileSystemType type = buildConfigObject(HiveS3TypeConfig.class).getS3FileSystemType();
         if (type == S3FileSystemType.PRESTO) {
             newSetBinder(binder, ConfigurationInitializer.class).addBinding().to(PrestoS3ConfigurationInitializer.class).in(Scopes.SINGLETON);
             configBinder(binder).bindConfig(HiveS3Config.class);
 
             binder.bind(PrestoS3FileSystemStats.class).toInstance(PrestoS3FileSystem.getFileSystemStats());
+            Provider<HiveCatalogName> catalogName = binder.getProvider(HiveCatalogName.class);
             newExporter(binder).export(PrestoS3FileSystemStats.class)
-                    .as(generator -> generator.generatedNameOf(PrestoS3FileSystem.class));
+                    .as(generator -> generator.generatedNameOf(PrestoS3FileSystem.class, catalogName.get().toString()));
         }
         else if (type == S3FileSystemType.EMRFS) {
             validateEmrFsClass();
             newSetBinder(binder, ConfigurationInitializer.class).addBinding().to(EmrFsS3ConfigurationInitializer.class).in(Scopes.SINGLETON);
+        }
+        else if (type == S3FileSystemType.HADOOP_DEFAULT) {
+            // configuration is done using Hadoop configuration files
         }
         else {
             throw new RuntimeException("Unknown file system type: " + type);

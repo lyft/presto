@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableList;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.DefunctConfig;
+import io.airlift.configuration.LegacyConfig;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.airlift.units.MaxDataSize;
@@ -38,8 +39,7 @@ import java.util.List;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
-import static io.prestosql.sql.analyzer.FeaturesConfig.JoinDistributionType.PARTITIONED;
-import static io.prestosql.sql.analyzer.FeaturesConfig.JoinReorderingStrategy.ELIMINATE_CROSS_JOINS;
+import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static io.prestosql.sql.analyzer.RegexLibrary.JONI;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MINUTES;
@@ -60,27 +60,27 @@ import static java.util.concurrent.TimeUnit.MINUTES;
 public class FeaturesConfig
 {
     @VisibleForTesting
-    static final String SPILL_ENABLED = "experimental.spill-enabled";
-    @VisibleForTesting
-    static final String SPILLER_SPILL_PATH = "experimental.spiller-spill-path";
+    static final String SPILL_ENABLED = "spill-enabled";
+    public static final String SPILLER_SPILL_PATH = "spiller-spill-path";
 
     private double cpuCostWeight = 75;
     private double memoryCostWeight = 10;
     private double networkCostWeight = 15;
     private boolean distributedIndexJoinsEnabled;
-    private JoinDistributionType joinDistributionType = PARTITIONED;
-    private DataSize joinMaxBroadcastTableSize;
+    private DataSize joinMaxBroadcastTableSize = DataSize.of(100, MEGABYTE);
+    private JoinDistributionType joinDistributionType = JoinDistributionType.AUTOMATIC;
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionEnabled;
     private boolean dynamicScheduleForGroupedExecution;
     private int concurrentLifespansPerTask;
     private boolean spatialJoinsEnabled = true;
     private boolean fastInequalityJoins = true;
-    private JoinReorderingStrategy joinReorderingStrategy = ELIMINATE_CROSS_JOINS;
+    private JoinReorderingStrategy joinReorderingStrategy = JoinReorderingStrategy.AUTOMATIC;
     private int maxReorderedJoins = 9;
     private boolean redistributeWrites = true;
+    private boolean usePreferredWritePartitioning;
     private boolean scaleWriters;
-    private DataSize writerMinSize = new DataSize(32, DataSize.Unit.MEGABYTE);
+    private DataSize writerMinSize = DataSize.of(32, DataSize.Unit.MEGABYTE);
     private boolean optimizeMetadataQueries;
     private boolean optimizeHashGeneration = true;
     private boolean enableIntermediateAggregations;
@@ -104,12 +104,13 @@ public class FeaturesConfig
     private boolean spillEnabled;
     private boolean spillOrderBy = true;
     private boolean spillWindowOperator = true;
-    private DataSize aggregationOperatorUnspillMemoryLimit = new DataSize(4, DataSize.Unit.MEGABYTE);
+    private DataSize aggregationOperatorUnspillMemoryLimit = DataSize.of(4, DataSize.Unit.MEGABYTE);
     private List<Path> spillerSpillPaths = ImmutableList.of();
     private int spillerThreads = 4;
     private double spillMaxUsedSpaceThreshold = 0.9;
     private boolean iterativeOptimizerEnabled = true;
     private boolean enableStatsCalculator = true;
+    private boolean collectPlanStatisticsForAllQueries;
     private boolean ignoreStatsCalculatorFailures = true;
     private boolean defaultFilterFactorEnabled;
     private boolean enableForcedExchangeBelowGroupId = true;
@@ -120,13 +121,17 @@ public class FeaturesConfig
     private boolean useMarkDistinct = true;
     private boolean preferPartialAggregation = true;
     private boolean optimizeTopNRowNumber = true;
-    private boolean workProcessorPipelines;
+    private boolean lateMaterializationEnabled;
     private boolean skipRedundantSort = true;
+    private boolean predicatePushdownUseTableProperties = true;
+    private boolean ignoreDownstreamPreferences;
 
     private Duration iterativeOptimizerTimeout = new Duration(3, MINUTES); // by default let optimizer wait a long time in case it retrieves some data from ConnectorMetadata
-    private boolean enableDynamicFiltering;
+    private boolean enableDynamicFiltering = true;
+    private int dynamicFilteringMaxPerDriverRowCount = 100;
+    private DataSize dynamicFilteringMaxPerDriverSize = DataSize.of(10, KILOBYTE);
 
-    private DataSize filterAndProjectMinOutputPageSize = new DataSize(500, KILOBYTE);
+    private DataSize filterAndProjectMinOutputPageSize = DataSize.of(500, KILOBYTE);
     private int filterAndProjectMinOutputPageRowCount = 256;
     private int maxGroupingSets = 2048;
 
@@ -226,6 +231,7 @@ public class FeaturesConfig
         return this;
     }
 
+    @NotNull
     public DataSize getJoinMaxBroadcastTableSize()
     {
         return joinMaxBroadcastTableSize;
@@ -265,13 +271,13 @@ public class FeaturesConfig
         return this;
     }
 
+    @Min(0)
     public int getConcurrentLifespansPerTask()
     {
         return concurrentLifespansPerTask;
     }
 
     @Config("concurrent-lifespans-per-task")
-    @Min(0)
     @ConfigDescription("Experimental: Default number of lifespans that run in parallel on each task when grouped execution is enabled")
     // When set to zero, a limit is not imposed on the number of lifespans that run in parallel
     public FeaturesConfig setConcurrentLifespansPerTask(int concurrentLifespansPerTask)
@@ -355,6 +361,18 @@ public class FeaturesConfig
     public FeaturesConfig setRedistributeWrites(boolean redistributeWrites)
     {
         this.redistributeWrites = redistributeWrites;
+        return this;
+    }
+
+    public boolean isUsePreferredWritePartitioning()
+    {
+        return usePreferredWritePartitioning;
+    }
+
+    @Config("use-preferred-write-partitioning")
+    public FeaturesConfig setUsePreferredWritePartitioning(boolean usePreferredWritePartitioning)
+    {
+        this.usePreferredWritePartitioning = usePreferredWritePartitioning;
         return this;
     }
 
@@ -512,6 +530,7 @@ public class FeaturesConfig
     }
 
     @Config(SPILL_ENABLED)
+    @LegacyConfig("experimental.spill-enabled")
     public FeaturesConfig setSpillEnabled(boolean spillEnabled)
     {
         this.spillEnabled = spillEnabled;
@@ -523,7 +542,8 @@ public class FeaturesConfig
         return spillOrderBy;
     }
 
-    @Config("experimental.spill-order-by")
+    @Config("spill-order-by")
+    @LegacyConfig("experimental.spill-order-by")
     public FeaturesConfig setSpillOrderBy(boolean spillOrderBy)
     {
         this.spillOrderBy = spillOrderBy;
@@ -535,7 +555,8 @@ public class FeaturesConfig
         return spillWindowOperator;
     }
 
-    @Config("experimental.spill-window-operator")
+    @Config("spill-window-operator")
+    @LegacyConfig("experimental.spill-window-operator")
     public FeaturesConfig setSpillWindowOperator(boolean spillWindowOperator)
     {
         this.spillWindowOperator = spillWindowOperator;
@@ -547,7 +568,8 @@ public class FeaturesConfig
         return iterativeOptimizerEnabled;
     }
 
-    @Config("experimental.iterative-optimizer-enabled")
+    @Config("iterative-optimizer-enabled")
+    @LegacyConfig("experimental.iterative-optimizer-enabled")
     public FeaturesConfig setIterativeOptimizerEnabled(boolean value)
     {
         this.iterativeOptimizerEnabled = value;
@@ -559,7 +581,8 @@ public class FeaturesConfig
         return iterativeOptimizerTimeout;
     }
 
-    @Config("experimental.iterative-optimizer-timeout")
+    @Config("iterative-optimizer-timeout")
+    @LegacyConfig("experimental.iterative-optimizer-timeout")
     public FeaturesConfig setIterativeOptimizerTimeout(Duration timeout)
     {
         this.iterativeOptimizerTimeout = timeout;
@@ -571,10 +594,24 @@ public class FeaturesConfig
         return enableStatsCalculator;
     }
 
-    @Config("experimental.enable-stats-calculator")
+    @Config("enable-stats-calculator")
+    @LegacyConfig("experimental.enable-stats-calculator")
     public FeaturesConfig setEnableStatsCalculator(boolean enableStatsCalculator)
     {
         this.enableStatsCalculator = enableStatsCalculator;
+        return this;
+    }
+
+    public boolean isCollectPlanStatisticsForAllQueries()
+    {
+        return collectPlanStatisticsForAllQueries;
+    }
+
+    @Config("collect-plan-statistics-for-all-queries")
+    @ConfigDescription("Collect plan statistics for non-EXPLAIN queries")
+    public FeaturesConfig setCollectPlanStatisticsForAllQueries(boolean collectPlanStatisticsForAllQueries)
+    {
+        this.collectPlanStatisticsForAllQueries = collectPlanStatisticsForAllQueries;
         return this;
     }
 
@@ -620,7 +657,8 @@ public class FeaturesConfig
         return aggregationOperatorUnspillMemoryLimit;
     }
 
-    @Config("experimental.aggregation-operator-unspill-memory-limit")
+    @Config("aggregation-operator-unspill-memory-limit")
+    @LegacyConfig("experimental.aggregation-operator-unspill-memory-limit")
     public FeaturesConfig setAggregationOperatorUnspillMemoryLimit(DataSize aggregationOperatorUnspillMemoryLimit)
     {
         this.aggregationOperatorUnspillMemoryLimit = aggregationOperatorUnspillMemoryLimit;
@@ -633,6 +671,7 @@ public class FeaturesConfig
     }
 
     @Config(SPILLER_SPILL_PATH)
+    @LegacyConfig("experimental.spiller-spill-path")
     public FeaturesConfig setSpillerSpillPaths(String spillPaths)
     {
         List<String> spillPathsSplit = ImmutableList.copyOf(Splitter.on(",").trimResults().omitEmptyStrings().split(spillPaths));
@@ -652,7 +691,8 @@ public class FeaturesConfig
         return spillerThreads;
     }
 
-    @Config("experimental.spiller-threads")
+    @Config("spiller-threads")
+    @LegacyConfig("experimental.spiller-threads")
     public FeaturesConfig setSpillerThreads(int spillerThreads)
     {
         this.spillerThreads = spillerThreads;
@@ -666,7 +706,8 @@ public class FeaturesConfig
         return memoryRevokingThreshold;
     }
 
-    @Config("experimental.memory-revoking-threshold")
+    @Config("memory-revoking-threshold")
+    @LegacyConfig("experimental.memory-revoking-threshold")
     @ConfigDescription("Revoke memory when memory pool is filled over threshold")
     public FeaturesConfig setMemoryRevokingThreshold(double memoryRevokingThreshold)
     {
@@ -681,7 +722,8 @@ public class FeaturesConfig
         return memoryRevokingTarget;
     }
 
-    @Config("experimental.memory-revoking-target")
+    @Config("memory-revoking-target")
+    @LegacyConfig("experimental.memory-revoking-target")
     @ConfigDescription("When revoking memory, try to revoke so much that pool is filled below target at the end")
     public FeaturesConfig setMemoryRevokingTarget(double memoryRevokingTarget)
     {
@@ -694,7 +736,8 @@ public class FeaturesConfig
         return spillMaxUsedSpaceThreshold;
     }
 
-    @Config("experimental.spiller-max-used-space-threshold")
+    @Config("spiller-max-used-space-threshold")
+    @LegacyConfig("experimental.spiller-max-used-space-threshold")
     public FeaturesConfig setSpillMaxUsedSpaceThreshold(double spillMaxUsedSpaceThreshold)
     {
         this.spillMaxUsedSpaceThreshold = spillMaxUsedSpaceThreshold;
@@ -706,10 +749,38 @@ public class FeaturesConfig
         return enableDynamicFiltering;
     }
 
-    @Config("experimental.enable-dynamic-filtering")
+    @Config("enable-dynamic-filtering")
+    @LegacyConfig("experimental.enable-dynamic-filtering")
     public FeaturesConfig setEnableDynamicFiltering(boolean value)
     {
         this.enableDynamicFiltering = value;
+        return this;
+    }
+
+    public int getDynamicFilteringMaxPerDriverRowCount()
+    {
+        return dynamicFilteringMaxPerDriverRowCount;
+    }
+
+    @Config("dynamic-filtering-max-per-driver-row-count")
+    @LegacyConfig("experimental.dynamic-filtering-max-per-driver-row-count")
+    public FeaturesConfig setDynamicFilteringMaxPerDriverRowCount(int dynamicFilteringMaxPerDriverRowCount)
+    {
+        this.dynamicFilteringMaxPerDriverRowCount = dynamicFilteringMaxPerDriverRowCount;
+        return this;
+    }
+
+    @MaxDataSize("1MB")
+    public DataSize getDynamicFilteringMaxPerDriverSize()
+    {
+        return dynamicFilteringMaxPerDriverSize;
+    }
+
+    @Config("dynamic-filtering-max-per-driver-size")
+    @LegacyConfig("experimental.dynamic-filtering-max-per-driver-size")
+    public FeaturesConfig setDynamicFilteringMaxPerDriverSize(DataSize dynamicFilteringMaxPerDriverSize)
+    {
+        this.dynamicFilteringMaxPerDriverSize = dynamicFilteringMaxPerDriverSize;
         return this;
     }
 
@@ -815,7 +886,8 @@ public class FeaturesConfig
         return filterAndProjectMinOutputPageSize;
     }
 
-    @Config("experimental.filter-and-project-min-output-page-size")
+    @Config("filter-and-project-min-output-page-size")
+    @LegacyConfig("experimental.filter-and-project-min-output-page-size")
     public FeaturesConfig setFilterAndProjectMinOutputPageSize(DataSize filterAndProjectMinOutputPageSize)
     {
         this.filterAndProjectMinOutputPageSize = filterAndProjectMinOutputPageSize;
@@ -828,7 +900,8 @@ public class FeaturesConfig
         return filterAndProjectMinOutputPageRowCount;
     }
 
-    @Config("experimental.filter-and-project-min-output-page-row-count")
+    @Config("filter-and-project-min-output-page-row-count")
+    @LegacyConfig("experimental.filter-and-project-min-output-page-row-count")
     public FeaturesConfig setFilterAndProjectMinOutputPageRowCount(int filterAndProjectMinOutputPageRowCount)
     {
         this.filterAndProjectMinOutputPageRowCount = filterAndProjectMinOutputPageRowCount;
@@ -895,15 +968,16 @@ public class FeaturesConfig
         return this;
     }
 
-    public boolean isWorkProcessorPipelines()
+    public boolean isLateMaterializationEnabled()
     {
-        return workProcessorPipelines;
+        return lateMaterializationEnabled;
     }
 
-    @Config("experimental.work-processor-pipelines")
-    public FeaturesConfig setWorkProcessorPipelines(boolean workProcessorPipelines)
+    @Config("experimental.late-materialization.enabled")
+    @LegacyConfig("experimental.work-processor-pipelines")
+    public FeaturesConfig setLateMaterializationEnabled(boolean lateMaterializationEnabled)
     {
-        this.workProcessorPipelines = workProcessorPipelines;
+        this.lateMaterializationEnabled = lateMaterializationEnabled;
         return this;
     }
 
@@ -916,6 +990,30 @@ public class FeaturesConfig
     public FeaturesConfig setSkipRedundantSort(boolean value)
     {
         this.skipRedundantSort = value;
+        return this;
+    }
+
+    public boolean isPredicatePushdownUseTableProperties()
+    {
+        return predicatePushdownUseTableProperties;
+    }
+
+    @Config("optimizer.predicate-pushdown-use-table-properties")
+    public FeaturesConfig setPredicatePushdownUseTableProperties(boolean predicatePushdownUseTableProperties)
+    {
+        this.predicatePushdownUseTableProperties = predicatePushdownUseTableProperties;
+        return this;
+    }
+
+    public boolean isIgnoreDownstreamPreferences()
+    {
+        return ignoreDownstreamPreferences;
+    }
+
+    @Config("optimizer.ignore-downstream-preferences")
+    public FeaturesConfig setIgnoreDownstreamPreferences(boolean ignoreDownstreamPreferences)
+    {
+        this.ignoreDownstreamPreferences = ignoreDownstreamPreferences;
         return this;
     }
 }

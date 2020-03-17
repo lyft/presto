@@ -15,10 +15,11 @@ package io.prestosql.sql.planner.optimizations;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import io.prestosql.metadata.FunctionId;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.spi.type.BigintType;
 import io.prestosql.spi.type.BooleanType;
-import io.prestosql.spi.type.TypeSignature;
+import io.prestosql.spi.type.Type;
 import io.prestosql.sql.planner.PlanNodeIdAllocator;
 import io.prestosql.sql.planner.Symbol;
 import io.prestosql.sql.planner.SymbolAllocator;
@@ -43,7 +44,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.prestosql.sql.analyzer.TypeSignatureProvider.fromTypeSignatures;
+import static io.prestosql.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static io.prestosql.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
 import static io.prestosql.sql.planner.plan.AggregationNode.singleGroupingSet;
 import static io.prestosql.sql.tree.BooleanLiteral.TRUE_LITERAL;
@@ -64,7 +65,7 @@ public class ScalarAggregationToJoinRewriter
         this.symbolAllocator = requireNonNull(symbolAllocator, "symbolAllocator is null");
         this.idAllocator = requireNonNull(idAllocator, "idAllocator is null");
         this.lookup = requireNonNull(lookup, "lookup is null");
-        this.planNodeDecorrelator = new PlanNodeDecorrelator(idAllocator, lookup);
+        this.planNodeDecorrelator = new PlanNodeDecorrelator(metadata, symbolAllocator, lookup);
     }
 
     public PlanNode rewriteScalarAggregation(CorrelatedJoinNode correlatedJoinNode, AggregationNode aggregation)
@@ -120,7 +121,8 @@ public class ScalarAggregationToJoinRewriter
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                ImmutableMap.of());
+                ImmutableMap.of(),
+                Optional.empty());
 
         Optional<AggregationNode> aggregationNode = createAggregationNode(
                 scalarAggregation,
@@ -170,18 +172,17 @@ public class ScalarAggregationToJoinRewriter
             JoinNode leftOuterJoin,
             Symbol nonNullableAggregationSourceSymbol)
     {
+        FunctionId countFunctionId = metadata.resolveFunction(QualifiedName.of("count"), ImmutableList.of()).getFunctionId();
         ImmutableMap.Builder<Symbol, Aggregation> aggregations = ImmutableMap.builder();
         for (Map.Entry<Symbol, Aggregation> entry : scalarAggregation.getAggregations().entrySet()) {
             Aggregation aggregation = entry.getValue();
             Symbol symbol = entry.getKey();
             // Only count() and count(*) require rewriting to count(non_null) in order to preserve the row count. count(argument) shouldn't be rewritten.
-            if (aggregation.getSignature().getName().equals("count") && aggregation.getArguments().size() == 0) {
-                List<TypeSignature> scalarAggregationSourceTypeSignatures = ImmutableList.of(
-                        symbolAllocator.getTypes().get(nonNullableAggregationSourceSymbol).getTypeSignature());
+            if (aggregation.getResolvedFunction().getFunctionId().equals(countFunctionId)) {
+                List<Type> scalarAggregationSourceTypes = ImmutableList.of(
+                        symbolAllocator.getTypes().get(nonNullableAggregationSourceSymbol));
                 aggregations.put(symbol, new Aggregation(
-                        metadata.resolveFunction(
-                                QualifiedName.of("count"),
-                                fromTypeSignatures(scalarAggregationSourceTypeSignatures)),
+                        metadata.resolveFunction(QualifiedName.of("count"), fromTypes(scalarAggregationSourceTypes)),
                         ImmutableList.of(nonNullableAggregationSourceSymbol.toSymbolReference()),
                         false,
                         Optional.empty(),

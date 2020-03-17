@@ -13,6 +13,7 @@
  */
 package io.prestosql.sql.planner.assertions;
 
+import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -22,7 +23,10 @@ import io.prestosql.Session;
 import io.prestosql.cost.StatsProvider;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.spi.block.SortOrder;
+import io.prestosql.spi.connector.ColumnHandle;
+import io.prestosql.spi.connector.ConnectorTableHandle;
 import io.prestosql.spi.predicate.Domain;
+import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.sql.parser.ParsingOptions;
 import io.prestosql.sql.parser.SqlParser;
 import io.prestosql.sql.planner.Symbol;
@@ -40,6 +44,8 @@ import io.prestosql.sql.planner.plan.GroupIdNode;
 import io.prestosql.sql.planner.plan.IndexSourceNode;
 import io.prestosql.sql.planner.plan.IntersectNode;
 import io.prestosql.sql.planner.plan.JoinNode;
+import io.prestosql.sql.planner.plan.JoinNode.EquiJoinClause;
+import io.prestosql.sql.planner.plan.JoinNode.Type;
 import io.prestosql.sql.planner.plan.LimitNode;
 import io.prestosql.sql.planner.plan.MarkDistinctNode;
 import io.prestosql.sql.planner.plan.OffsetNode;
@@ -134,6 +140,16 @@ public final class PlanMatchPattern
     {
         PlanMatchPattern result = tableScan(expectedTableName);
         return result.addColumnReferences(expectedTableName, columnReferences);
+    }
+
+    public static PlanMatchPattern tableScan(
+            Predicate<ConnectorTableHandle> expectedTable,
+            TupleDomain<Predicate<ColumnHandle>> enforcedConstraints,
+            Map<String, Predicate<ColumnHandle>> expectedColumns)
+    {
+        PlanMatchPattern pattern = ConnectorAwareTableScanMatcher.create(expectedTable, enforcedConstraints);
+        expectedColumns.entrySet().forEach(column -> pattern.withAlias(column.getKey(), new ColumnHandleMatcher(column.getValue())));
+        return pattern;
     }
 
     public static PlanMatchPattern strictTableScan(String expectedTableName, Map<String, String> columnReferences)
@@ -391,25 +407,27 @@ public final class PlanMatchPattern
                 new JoinMatcher(
                         joinType,
                         expectedEquiCriteria,
-                        expectedFilter.map(predicate -> rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(predicate))),
+                        expectedFilter.map(predicate -> rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(predicate, new ParsingOptions()))),
                         expectedDistributionType,
                         expectedSpillable,
                         Optional.empty()));
     }
 
     public static PlanMatchPattern join(
-            JoinNode.Type joinType,
-            List<ExpectedValueProvider<JoinNode.EquiJoinClause>> expectedEquiCriteria,
+            Type joinType,
+            List<ExpectedValueProvider<EquiJoinClause>> expectedEquiCriteria,
             Map<String, String> expectedDynamicFilter,
             Optional<String> expectedStaticFilter,
             PlanMatchPattern leftSource,
-            PlanMatchPattern right)
+            PlanMatchPattern right,
+            Metadata metadata)
     {
         Map<SymbolAlias, SymbolAlias> expectedDynamicFilterAliases = expectedDynamicFilter.entrySet().stream()
                 .collect(toImmutableMap(entry -> new SymbolAlias(entry.getKey()), entry -> new SymbolAlias(entry.getValue())));
         DynamicFilterMatcher dynamicFilterMatcher = new DynamicFilterMatcher(
+                metadata,
                 expectedDynamicFilterAliases,
-                expectedStaticFilter.map(predicate -> rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(predicate))));
+                expectedStaticFilter.map(predicate -> rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(predicate, new ParsingOptions()))));
         JoinMatcher joinMatcher = new JoinMatcher(
                 joinType,
                 expectedEquiCriteria,
@@ -456,8 +474,13 @@ public final class PlanMatchPattern
 
     public static PlanMatchPattern exchange(ExchangeNode.Scope scope, ExchangeNode.Type type, List<Ordering> orderBy, PlanMatchPattern... sources)
     {
+        return exchange(scope, type, orderBy, ImmutableSet.of(), sources);
+    }
+
+    public static PlanMatchPattern exchange(ExchangeNode.Scope scope, ExchangeNode.Type type, List<Ordering> orderBy, Set<String> partitionedBy, PlanMatchPattern... sources)
+    {
         return node(ExchangeNode.class, sources)
-                .with(new ExchangeMatcher(scope, type, orderBy));
+                .with(new ExchangeMatcher(scope, type, orderBy, partitionedBy));
     }
 
     public static PlanMatchPattern union(PlanMatchPattern... sources)
@@ -493,7 +516,7 @@ public final class PlanMatchPattern
 
     public static PlanMatchPattern filter(String expectedPredicate, PlanMatchPattern source)
     {
-        return filter(rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedPredicate)), source);
+        return filter(rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedPredicate, new ParsingOptions())), source);
     }
 
     public static PlanMatchPattern filter(Expression expectedPredicate, PlanMatchPattern source)
@@ -510,7 +533,7 @@ public final class PlanMatchPattern
         return result;
     }
 
-    public static PlanMatchPattern lateral(List<String> correlationSymbolAliases, PlanMatchPattern inputPattern, PlanMatchPattern subqueryPattern)
+    public static PlanMatchPattern correlatedJoin(List<String> correlationSymbolAliases, PlanMatchPattern inputPattern, PlanMatchPattern subqueryPattern)
     {
         return node(CorrelatedJoinNode.class, inputPattern, subqueryPattern)
                 .with(new CorrelationMatcher(correlationSymbolAliases));
@@ -721,6 +744,11 @@ public final class PlanMatchPattern
     }
 
     public static ExpressionMatcher expression(String expression)
+    {
+        return new ExpressionMatcher(expression);
+    }
+
+    public static ExpressionMatcher expression(Expression expression)
     {
         return new ExpressionMatcher(expression);
     }

@@ -19,6 +19,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
+import io.prestosql.execution.Lifespan;
 import io.prestosql.memory.context.AggregatedMemoryContext;
 import io.prestosql.memory.context.LocalMemoryContext;
 import io.prestosql.memory.context.MemoryTrackingContext;
@@ -41,7 +42,6 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
-import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.airlift.units.DataSize.succinctBytes;
 import static io.prestosql.operator.BlockedReason.WAITING_FOR_MEMORY;
 import static io.prestosql.operator.PageUtils.recordMaterializedBytes;
@@ -143,9 +143,7 @@ public class WorkProcessorPipelineSourceOperator
             MemoryTrackingContext operatorMemoryTrackingContext = createMemoryTrackingContext(operatorContext, operatorIndex);
             operatorMemoryTrackingContext.initializeLocalMemoryContexts(operatorFactory.getOperatorType());
             WorkProcessorOperator operator = operatorFactory.create(
-                    operatorContext.getSession(),
-                    operatorMemoryTrackingContext,
-                    operatorContext.getDriverContext().getYieldSignal(),
+                    new ProcessorContext(operatorContext.getSession(), operatorMemoryTrackingContext, operatorContext),
                     pages);
             workProcessorOperatorContexts.add(new WorkProcessorOperatorContext(
                     operator,
@@ -241,12 +239,14 @@ public class WorkProcessorPipelineSourceOperator
         }
 
         // account processed bytes from lazy blocks only when they are loaded
-        return recordMaterializedBytes(page, sizeInBytes -> {
+        recordMaterializedBytes(page, sizeInBytes -> {
             operatorContext.outputDataSize.getAndAdd(sizeInBytes);
             if (downstreamOperatorContext != null) {
                 downstreamOperatorContext.inputDataSize.getAndAdd(sizeInBytes);
             }
         });
+
+        return page;
     }
 
     private boolean isLastOperator(int operatorIndex)
@@ -303,7 +303,7 @@ public class WorkProcessorPipelineSourceOperator
                         succinctBytes(context.outputDataSize.get()),
                         context.outputPositions.get(),
 
-                        new DataSize(0, BYTE),
+                        DataSize.ofBytes(0),
 
                         new Duration(context.blockedWallNanos.get(), NANOSECONDS),
 
@@ -319,7 +319,7 @@ public class WorkProcessorPipelineSourceOperator
                         succinctBytes(context.peakSystemMemoryReservation.get()),
                         succinctBytes(context.peakRevocableMemoryReservation.get()),
                         succinctBytes(context.peakTotalMemoryReservation.get()),
-                        new DataSize(0, BYTE),
+                        DataSize.ofBytes(0),
                         operatorContext.isWaitingForMemory().isDone() ? Optional.empty() : Optional.of(WAITING_FOR_MEMORY),
                         getOperatorInfo(context)))
                 .collect(toImmutableList());
@@ -712,7 +712,14 @@ public class WorkProcessorPipelineSourceOperator
         @Override
         public void noMoreOperators()
         {
+            this.operatorFactories.forEach(WorkProcessorOperatorFactory::close);
             closed = true;
+        }
+
+        @Override
+        public void noMoreOperators(Lifespan lifespan)
+        {
+            this.operatorFactories.forEach(operatorFactory -> operatorFactory.lifespanFinished(lifespan));
         }
     }
 }

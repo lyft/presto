@@ -14,13 +14,14 @@
 package io.prestosql.plugin.hive.util;
 
 import com.google.common.collect.ImmutableList;
+import io.prestosql.plugin.hive.DeleteDeltaLocations;
 import io.prestosql.plugin.hive.HiveColumnHandle;
 import io.prestosql.plugin.hive.HivePartitionKey;
 import io.prestosql.plugin.hive.HiveSplit.BucketConversion;
 import io.prestosql.plugin.hive.HiveTypeName;
 import io.prestosql.plugin.hive.InternalHiveSplit;
 import io.prestosql.plugin.hive.InternalHiveSplit.InternalHiveBlock;
-import io.prestosql.plugin.hive.S3SelectPushdown;
+import io.prestosql.plugin.hive.s3select.S3SelectPushdown;
 import io.prestosql.spi.HostAddress;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.predicate.TupleDomain;
@@ -46,7 +47,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.prestosql.plugin.hive.HiveColumnHandle.isPathColumnHandle;
-import static io.prestosql.plugin.hive.HiveUtil.isSplittable;
+import static io.prestosql.plugin.hive.util.HiveUtil.isSplittable;
 import static java.util.Objects.requireNonNull;
 
 public class InternalHiveSplitFactory
@@ -91,17 +92,17 @@ public class InternalHiveSplitFactory
         return partitionName;
     }
 
-    public Optional<InternalHiveSplit> createInternalHiveSplit(LocatedFileStatus status, boolean splittable)
+    public Optional<InternalHiveSplit> createInternalHiveSplit(LocatedFileStatus status, boolean splittable, Optional<DeleteDeltaLocations> deleteDeltaLocations)
     {
-        return createInternalHiveSplit(status, OptionalInt.empty(), splittable);
+        return createInternalHiveSplit(status, OptionalInt.empty(), splittable, deleteDeltaLocations);
     }
 
-    public Optional<InternalHiveSplit> createInternalHiveSplit(LocatedFileStatus status, int bucketNumber)
+    public Optional<InternalHiveSplit> createInternalHiveSplit(LocatedFileStatus status, int bucketNumber, Optional<DeleteDeltaLocations> deleteDeltaLocations)
     {
-        return createInternalHiveSplit(status, OptionalInt.of(bucketNumber), false);
+        return createInternalHiveSplit(status, OptionalInt.of(bucketNumber), false, deleteDeltaLocations);
     }
 
-    private Optional<InternalHiveSplit> createInternalHiveSplit(LocatedFileStatus status, OptionalInt bucketNumber, boolean splittable)
+    private Optional<InternalHiveSplit> createInternalHiveSplit(LocatedFileStatus status, OptionalInt bucketNumber, boolean splittable, Optional<DeleteDeltaLocations> deleteDeltaLocations)
     {
         splittable = splittable && isSplittable(inputFormat, fileSystem, status.getPath());
         return createInternalHiveSplit(
@@ -110,8 +111,10 @@ public class InternalHiveSplitFactory
                 0,
                 status.getLen(),
                 status.getLen(),
+                status.getModificationTime(),
                 bucketNumber,
-                splittable);
+                splittable,
+                deleteDeltaLocations);
     }
 
     public Optional<InternalHiveSplit> createInternalHiveSplit(FileSplit split)
@@ -124,8 +127,10 @@ public class InternalHiveSplitFactory
                 split.getStart(),
                 split.getLength(),
                 file.getLen(),
+                file.getModificationTime(),
                 OptionalInt.empty(),
-                false);
+                false,
+                Optional.empty());
     }
 
     private Optional<InternalHiveSplit> createInternalHiveSplit(
@@ -134,8 +139,10 @@ public class InternalHiveSplitFactory
             long start,
             long length,
             long fileSize,
+            long fileModificationTime,
             OptionalInt bucketNumber,
-            boolean splittable)
+            boolean splittable,
+            Optional<DeleteDeltaLocations> deleteDeltaLocations)
     {
         String pathString = path.toString();
         if (!pathMatchesPredicate(pathDomain, pathString)) {
@@ -182,6 +189,7 @@ public class InternalHiveSplitFactory
                 start,
                 start + length,
                 fileSize,
+                fileModificationTime,
                 schema,
                 partitionKeys,
                 blocks,
@@ -190,7 +198,8 @@ public class InternalHiveSplitFactory
                 forceLocalScheduling && allBlocksHaveAddress(blocks),
                 columnCoercions,
                 bucketConversion,
-                s3SelectPushdownEnabled && S3SelectPushdown.isCompressionCodecSupported(inputFormat, path)));
+                s3SelectPushdownEnabled && S3SelectPushdown.isCompressionCodecSupported(inputFormat, path),
+                deleteDeltaLocations));
     }
 
     private static void checkBlocks(List<InternalHiveBlock> blocks, long start, long length)

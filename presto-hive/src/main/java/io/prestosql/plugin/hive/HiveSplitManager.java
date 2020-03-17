@@ -21,11 +21,12 @@ import com.google.common.collect.Ordering;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.stats.CounterStat;
 import io.airlift.units.DataSize;
-import io.prestosql.plugin.hive.HiveBucketing.HiveBucketFilter;
+import io.prestosql.plugin.hive.authentication.HiveIdentity;
 import io.prestosql.plugin.hive.metastore.Column;
 import io.prestosql.plugin.hive.metastore.Partition;
 import io.prestosql.plugin.hive.metastore.SemiTransactionalHiveMetastore;
 import io.prestosql.plugin.hive.metastore.Table;
+import io.prestosql.plugin.hive.util.HiveBucketing.HiveBucketFilter;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.VersionEmbedder;
 import io.prestosql.spi.connector.ConnectorSession;
@@ -62,8 +63,9 @@ import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_INVALID_METADATA;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_PARTITION_DROPPED_DURING_QUERY;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_PARTITION_SCHEMA_MISMATCH;
 import static io.prestosql.plugin.hive.HivePartition.UNPARTITIONED_ID;
+import static io.prestosql.plugin.hive.HiveSessionProperties.isIgnoreAbsentPartitions;
 import static io.prestosql.plugin.hive.metastore.MetastoreUtil.getProtectMode;
-import static io.prestosql.plugin.hive.metastore.MetastoreUtil.makePartName;
+import static io.prestosql.plugin.hive.metastore.MetastoreUtil.makePartitionName;
 import static io.prestosql.plugin.hive.metastore.MetastoreUtil.verifyOnline;
 import static io.prestosql.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.prestosql.spi.StandardErrorCode.SERVER_SHUTTING_DOWN;
@@ -175,7 +177,7 @@ public class HiveSplitManager
 
         // get table metadata
         SemiTransactionalHiveMetastore metastore = metastoreProvider.apply((HiveTransactionHandle) transaction);
-        Table table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName())
+        Table table = metastore.getTable(new HiveIdentity(session), tableName.getSchemaName(), tableName.getTableName())
                 .orElseThrow(() -> new TableNotFoundException(tableName));
 
         // verify table is not marked as non-readable
@@ -185,7 +187,7 @@ public class HiveSplitManager
         }
 
         // get partitions
-        List<HivePartition> partitions = partitionManager.getOrLoadPartitions(metastore, hiveTable);
+        List<HivePartition> partitions = partitionManager.getOrLoadPartitions(metastore, new HiveIdentity(session), hiveTable);
 
         // short circuit if we don't have any partitions
         if (partitions.isEmpty()) {
@@ -204,7 +206,7 @@ public class HiveSplitManager
         // sort partitions
         partitions = Ordering.natural().onResultOf(HivePartition::getPartitionId).reverse().sortedCopy(partitions);
 
-        Iterable<HivePartitionMetadata> hivePartitions = getPartitionMetadata(metastore, table, tableName, partitions, bucketHandle.map(HiveBucketHandle::toTableBucketProperty));
+        Iterable<HivePartitionMetadata> hivePartitions = getPartitionMetadata(session, metastore, table, tableName, partitions, bucketHandle.map(HiveBucketHandle::toTableBucketProperty));
 
         HiveSplitLoader hiveSplitLoader = new BackgroundHiveSplitLoader(
                 table,
@@ -217,7 +219,10 @@ public class HiveSplitManager
                 directoryLister,
                 executor,
                 splitLoaderConcurrency,
-                recursiveDfsWalkerEnabled);
+                recursiveDfsWalkerEnabled,
+                !hiveTable.getPartitionColumns().isEmpty() && isIgnoreAbsentPartitions(session),
+                metastore.getValidWriteIds(session, hiveTable)
+                        .map(validTxnWriteIdList -> validTxnWriteIdList.getTableValidWriteIdList(table.getDatabaseName() + "." + table.getTableName())));
 
         HiveSplitSource splitSource;
         switch (splitSchedulingStrategy) {
@@ -262,7 +267,7 @@ public class HiveSplitManager
         return highMemorySplitSourceCounter;
     }
 
-    private Iterable<HivePartitionMetadata> getPartitionMetadata(SemiTransactionalHiveMetastore metastore, Table table, SchemaTableName tableName, List<HivePartition> hivePartitions, Optional<HiveBucketProperty> bucketProperty)
+    private Iterable<HivePartitionMetadata> getPartitionMetadata(ConnectorSession session, SemiTransactionalHiveMetastore metastore, Table table, SchemaTableName tableName, List<HivePartition> hivePartitions, Optional<HiveBucketProperty> bucketProperty)
     {
         if (hivePartitions.isEmpty()) {
             return ImmutableList.of();
@@ -278,6 +283,7 @@ public class HiveSplitManager
         Iterable<List<HivePartition>> partitionNameBatches = partitionExponentially(hivePartitions, minPartitionBatchSize, maxPartitionBatchSize);
         Iterable<List<HivePartitionMetadata>> partitionBatches = transform(partitionNameBatches, partitionBatch -> {
             Map<String, Optional<Partition>> batch = metastore.getPartitionsByNames(
+                    new HiveIdentity(session),
                     tableName.getSchemaName(),
                     tableName.getTableName(),
                     Lists.transform(partitionBatch, HivePartition::getPartitionId));
@@ -299,7 +305,7 @@ public class HiveSplitManager
                 if (partition == null) {
                     throw new PrestoException(GENERIC_INTERNAL_ERROR, "Partition not loaded: " + hivePartition);
                 }
-                String partName = makePartName(table.getPartitionColumns(), partition.getValues());
+                String partName = makePartitionName(table, partition);
 
                 // verify partition is online
                 verifyOnline(tableName, Optional.of(partName), getProtectMode(partition), partition.getParameters());
@@ -378,16 +384,13 @@ public class HiveSplitManager
     {
         checkArgument(tableBucketCount > 0 && partitionBucketCount > 0);
         int larger = Math.max(tableBucketCount, partitionBucketCount);
-        int smaller = Math.min(tableBucketCount, partitionBucketCount);
+        int smaller = min(tableBucketCount, partitionBucketCount);
         if (larger % smaller != 0) {
             // must be evenly divisible
             return false;
         }
-        if (Integer.bitCount(larger / smaller) != 1) {
-            // ratio must be power of two
-            return false;
-        }
-        return true;
+        // ratio must be power of two
+        return Integer.bitCount(larger / smaller) == 1;
     }
 
     /**

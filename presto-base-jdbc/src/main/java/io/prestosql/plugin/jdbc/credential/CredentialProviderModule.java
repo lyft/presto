@@ -17,13 +17,20 @@ import com.google.inject.Binder;
 import com.google.inject.Module;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.airlift.configuration.ConfigurationFactory;
-import io.prestosql.plugin.jdbc.BaseJdbcConfig;
+import io.prestosql.plugin.jdbc.BaseJdbcAuthenticationConfig;
 import io.prestosql.plugin.jdbc.credential.file.ConfigFileBasedCredentialProviderConfig;
+import io.prestosql.plugin.jdbc.credential.keystore.KeyStoreBasedCredentialProviderConfig;
 
 import javax.inject.Inject;
 import javax.inject.Provider;
 
 import java.io.IOException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.UnrecoverableEntryException;
+import java.security.cert.CertificateException;
+import java.security.spec.InvalidKeySpecException;
 import java.util.Map;
 
 import static com.google.inject.Scopes.SINGLETON;
@@ -32,6 +39,9 @@ import static io.airlift.configuration.ConfigBinder.configBinder;
 import static io.airlift.configuration.ConfigurationLoader.loadPropertiesFrom;
 import static io.prestosql.plugin.jdbc.credential.CredentialProviderType.FILE;
 import static io.prestosql.plugin.jdbc.credential.CredentialProviderType.INLINE;
+import static io.prestosql.plugin.jdbc.credential.CredentialProviderType.KEYSTORE;
+import static io.prestosql.plugin.jdbc.credential.keystore.KeyStoreUtils.loadKeyStore;
+import static io.prestosql.plugin.jdbc.credential.keystore.KeyStoreUtils.readEntity;
 import static java.util.Objects.requireNonNull;
 
 public class CredentialProviderModule
@@ -40,6 +50,7 @@ public class CredentialProviderModule
     @Override
     protected void setup(Binder binder)
     {
+        configBinder(binder).bindConfig(BaseJdbcAuthenticationConfig.class);
         bindCredentialProviderModule(
                 INLINE,
                 internalBinder -> {
@@ -52,14 +63,20 @@ public class CredentialProviderModule
                     configBinder(binder).bindConfig(ConfigFileBasedCredentialProviderConfig.class);
                     internalBinder.bind(CredentialProvider.class).annotatedWith(ForExtraCredentialProvider.class).toProvider(ConfigFileBasedCredentialProviderFactory.class).in(SINGLETON);
                 });
+        bindCredentialProviderModule(
+                KEYSTORE,
+                internalBinder -> {
+                    configBinder(binder).bindConfig(KeyStoreBasedCredentialProviderConfig.class);
+                    internalBinder.bind(CredentialProvider.class).annotatedWith(ForExtraCredentialProvider.class).toProvider(KeyStoreBasedCredentialProviderFactory.class);
+                });
         binder.bind(CredentialProvider.class).to(ExtraCredentialProvider.class).in(SINGLETON);
     }
 
     private void bindCredentialProviderModule(CredentialProviderType name, Module module)
     {
         install(installModuleIf(
-                BaseJdbcConfig.class,
-                config -> name.equals(config.getCredentialProviderType()),
+                BaseJdbcAuthenticationConfig.class,
+                config -> name == config.getCredentialProviderType(),
                 module));
     }
 
@@ -75,6 +92,30 @@ public class CredentialProviderModule
             requireNonNull(config, "config is null");
             Map<String, String> properties = loadPropertiesFrom(config.getCredentialFile());
             credentialsConfig = new ConfigurationFactory(properties).build(CredentialConfig.class);
+        }
+
+        @Override
+        public CredentialProvider get()
+        {
+            return new ConfigFileBasedCredentialProvider(credentialsConfig);
+        }
+    }
+
+    private static class KeyStoreBasedCredentialProviderFactory
+            implements Provider<CredentialProvider>
+    {
+        private final CredentialConfig credentialsConfig;
+
+        @Inject
+        public KeyStoreBasedCredentialProviderFactory(KeyStoreBasedCredentialProviderConfig config)
+                throws IOException, CertificateException, NoSuchAlgorithmException, KeyStoreException, InvalidKeySpecException, UnrecoverableEntryException
+        {
+            requireNonNull(config, "config is null");
+            KeyStore keyStore = loadKeyStore(config.getKeyStoreType(), config.getKeyStoreFilePath(), config.getKeyStorePassword());
+
+            credentialsConfig = new CredentialConfig()
+                    .setConnectionUser(readEntity(keyStore, config.getUserCredentialName(), config.getPasswordForUserCredentialName()))
+                    .setConnectionPassword(readEntity(keyStore, config.getPasswordCredentialName(), config.getPasswordForPasswordCredentialName()));
         }
 
         @Override

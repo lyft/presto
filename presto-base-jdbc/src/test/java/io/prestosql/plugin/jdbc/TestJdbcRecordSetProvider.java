@@ -45,10 +45,9 @@ import static io.prestosql.testing.TestingConnectorSession.SESSION;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 
-@Test
 public class TestJdbcRecordSetProvider
 {
-    private static final JdbcIdentity IDENTITY = new JdbcIdentity("user", ImmutableMap.of());
+    private static final JdbcIdentity IDENTITY = JdbcIdentity.from(SESSION);
 
     private TestingDatabase database;
     private JdbcClient jdbcClient;
@@ -188,7 +187,7 @@ public class TestJdbcRecordSetProvider
                 domain,
                 OptionalLong.empty());
 
-        ConnectorSplitSource splits = jdbcClient.getSplits(IDENTITY, jdbcTableHandle);
+        ConnectorSplitSource splits = jdbcClient.getSplits(SESSION, jdbcTableHandle);
         JdbcSplit split = (JdbcSplit) getOnlyElement(getFutureValue(splits.getNextBatch(NOT_PARTITIONED, 1000)).getSplits());
 
         ConnectorTransactionHandle transaction = new JdbcTransactionHandle();

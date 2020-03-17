@@ -13,10 +13,13 @@
  */
 package io.prestosql.spi.testing;
 
-import com.google.common.collect.ImmutableSet;
-
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.function.Function;
 
+import static com.google.common.base.Defaults.defaultValue;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.reflect.Reflection.newProxy;
 import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.fail;
@@ -27,14 +30,51 @@ public final class InterfaceTestUtils
 
     public static <I, C extends I> void assertAllMethodsOverridden(Class<I> iface, Class<C> clazz)
     {
-        assertEquals(ImmutableSet.copyOf(clazz.getInterfaces()), ImmutableSet.of(iface));
+        checkArgument(iface.isAssignableFrom(clazz), "%s is not supertype of %s", iface, clazz);
         for (Method method : iface.getMethods()) {
+            if (Modifier.isStatic(method.getModifiers())) {
+                continue;
+            }
+            if (method.getDeclaringClass() == Object.class) {
+                continue;
+            }
             try {
                 Method override = clazz.getDeclaredMethod(method.getName(), method.getParameterTypes());
-                assertEquals(override.getReturnType(), method.getReturnType());
+                if (!method.getReturnType().isAssignableFrom(override.getReturnType())) {
+                    fail(format("%s is not assignable from %s for method %s", method.getReturnType(), override.getReturnType(), method));
+                }
             }
             catch (NoSuchMethodException e) {
                 fail(format("%s does not override [%s]", clazz.getName(), method));
+            }
+        }
+    }
+
+    public static <I, C extends I> void assertProperForwardingMethodsAreCalled(Class<I> iface, Function<I, C> forwardingInstanceFactory)
+    {
+        for (Method actualMethod : iface.getDeclaredMethods()) {
+            Object[] actualArguments = new Object[actualMethod.getParameterCount()];
+            for (int i = 0; i < actualArguments.length; i++) {
+                if (actualMethod.getParameterTypes()[i].isPrimitive()) {
+                    actualArguments[i] = defaultValue(actualMethod.getParameterTypes()[i]);
+                }
+            }
+            C forwardingInstance = forwardingInstanceFactory.apply(
+                    newProxy(iface, (proxy, expectedMethod, expectedArguments) -> {
+                        assertEquals(actualMethod.getName(), expectedMethod.getName());
+                        // TODO assert arguments
+
+                        if (actualMethod.getReturnType().isPrimitive()) {
+                            return defaultValue(actualMethod.getReturnType());
+                        }
+                        return null;
+                    }));
+
+            try {
+                actualMethod.invoke(forwardingInstance, actualArguments);
+            }
+            catch (Exception e) {
+                throw new RuntimeException(format("Invocation of %s has failed", actualMethod), e);
             }
         }
     }

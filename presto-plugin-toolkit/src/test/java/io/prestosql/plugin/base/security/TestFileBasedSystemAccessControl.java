@@ -15,9 +15,12 @@ package io.prestosql.plugin.base.security;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.prestosql.spi.connector.CatalogSchemaName;
 import io.prestosql.spi.connector.CatalogSchemaTableName;
 import io.prestosql.spi.security.AccessDeniedException;
 import io.prestosql.spi.security.Identity;
+import io.prestosql.spi.security.PrestoPrincipal;
+import io.prestosql.spi.security.PrincipalType;
 import io.prestosql.spi.security.SystemAccessControl;
 import io.prestosql.spi.security.SystemSecurityContext;
 import org.testng.annotations.Test;
@@ -36,21 +39,22 @@ import static java.lang.Thread.sleep;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.util.Files.newTemporaryFile;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertThrows;
 
 public class TestFileBasedSystemAccessControl
 {
-    private static final Identity alice = new Identity("alice", Optional.empty());
-    private static final Identity kerberosValidAlice = new Identity("alice", Optional.of(new KerberosPrincipal("alice/example.com@EXAMPLE.COM")));
-    private static final Identity kerberosValidNonAsciiUser = new Identity("\u0194\u0194\u0194", Optional.of(new KerberosPrincipal("\u0194\u0194\u0194/example.com@EXAMPLE.COM")));
-    private static final Identity kerberosInvalidAlice = new Identity("alice", Optional.of(new KerberosPrincipal("mallory/example.com@EXAMPLE.COM")));
-    private static final Identity kerberosValidShare = new Identity("alice", Optional.of(new KerberosPrincipal("valid/example.com@EXAMPLE.COM")));
-    private static final Identity kerberosInValidShare = new Identity("alice", Optional.of(new KerberosPrincipal("invalid/example.com@EXAMPLE.COM")));
-    private static final Identity validSpecialRegexWildDot = new Identity(".*", Optional.of(new KerberosPrincipal("special/.*@EXAMPLE.COM")));
-    private static final Identity validSpecialRegexEndQuote = new Identity("\\E", Optional.of(new KerberosPrincipal("special/\\E@EXAMPLE.COM")));
-    private static final Identity invalidSpecialRegex = new Identity("alice", Optional.of(new KerberosPrincipal("special/.*@EXAMPLE.COM")));
-    private static final Identity bob = new Identity("bob", Optional.empty());
-    private static final Identity admin = new Identity("admin", Optional.empty());
-    private static final Identity nonAsciiUser = new Identity("\u0194\u0194\u0194", Optional.empty());
+    private static final Identity alice = Identity.ofUser("alice");
+    private static final Identity kerberosValidAlice = Identity.forUser("alice").withPrincipal(new KerberosPrincipal("alice/example.com@EXAMPLE.COM")).build();
+    private static final Identity kerberosValidNonAsciiUser = Identity.forUser("\u0194\u0194\u0194").withPrincipal(new KerberosPrincipal("\u0194\u0194\u0194/example.com@EXAMPLE.COM")).build();
+    private static final Identity kerberosInvalidAlice = Identity.forUser("alice").withPrincipal(new KerberosPrincipal("mallory/example.com@EXAMPLE.COM")).build();
+    private static final Identity kerberosValidShare = Identity.forUser("alice").withPrincipal(new KerberosPrincipal("valid/example.com@EXAMPLE.COM")).build();
+    private static final Identity kerberosInValidShare = Identity.forUser("alice").withPrincipal(new KerberosPrincipal("invalid/example.com@EXAMPLE.COM")).build();
+    private static final Identity validSpecialRegexWildDot = Identity.forUser(".*").withPrincipal(new KerberosPrincipal("special/.*@EXAMPLE.COM")).build();
+    private static final Identity validSpecialRegexEndQuote = Identity.forUser("\\E").withPrincipal(new KerberosPrincipal("special/\\E@EXAMPLE.COM")).build();
+    private static final Identity invalidSpecialRegex = Identity.forUser("alice").withPrincipal(new KerberosPrincipal("special/.*@EXAMPLE.COM")).build();
+    private static final Identity bob = Identity.ofUser("bob");
+    private static final Identity admin = Identity.ofUser("admin");
+    private static final Identity nonAsciiUser = Identity.ofUser("\u0194\u0194\u0194");
     private static final Set<String> allCatalogs = ImmutableSet.of("secret", "open-to-all", "all-allowed", "alice-catalog", "allowed-absent", "\u0200\u0200\u0200");
     private static final CatalogSchemaTableName aliceView = new CatalogSchemaTableName("alice-catalog", "schema", "view");
 
@@ -94,6 +98,96 @@ public class TestFileBasedSystemAccessControl
 
         SystemAccessControl accessControlNoPatterns = newFileBasedSystemAccessControl("catalog.json");
         accessControlNoPatterns.checkCanSetUser(kerberosValidAlice.getPrincipal(), kerberosValidAlice.getUser());
+    }
+
+    @Test
+    public void testQuery()
+    {
+        SystemAccessControl accessControlManager = newFileBasedSystemAccessControl("query.json");
+
+        accessControlManager.checkCanExecuteQuery(new SystemSecurityContext(admin));
+        accessControlManager.checkCanViewQueryOwnedBy(new SystemSecurityContext(admin), "any");
+        assertEquals(accessControlManager.filterViewQueryOwnedBy(new SystemSecurityContext(admin), ImmutableSet.of("a", "b")), ImmutableSet.of("a", "b"));
+        accessControlManager.checkCanKillQueryOwnedBy(new SystemSecurityContext(admin), "any");
+
+        accessControlManager.checkCanExecuteQuery(new SystemSecurityContext(alice));
+        accessControlManager.checkCanViewQueryOwnedBy(new SystemSecurityContext(alice), "any");
+        assertEquals(accessControlManager.filterViewQueryOwnedBy(new SystemSecurityContext(alice), ImmutableSet.of("a", "b")), ImmutableSet.of("a", "b"));
+        assertThrows(AccessDeniedException.class, () -> accessControlManager.checkCanKillQueryOwnedBy(new SystemSecurityContext(alice), "any"));
+
+        assertThrows(AccessDeniedException.class, () -> accessControlManager.checkCanExecuteQuery(new SystemSecurityContext(bob)));
+        assertThrows(AccessDeniedException.class, () -> accessControlManager.checkCanViewQueryOwnedBy(new SystemSecurityContext(bob), "any"));
+        assertEquals(accessControlManager.filterViewQueryOwnedBy(new SystemSecurityContext(bob), ImmutableSet.of("a", "b")), ImmutableSet.of());
+        accessControlManager.checkCanKillQueryOwnedBy(new SystemSecurityContext(bob), "any");
+
+        accessControlManager.checkCanExecuteQuery(new SystemSecurityContext(nonAsciiUser));
+        accessControlManager.checkCanViewQueryOwnedBy(new SystemSecurityContext(nonAsciiUser), "any");
+        assertEquals(accessControlManager.filterViewQueryOwnedBy(new SystemSecurityContext(nonAsciiUser), ImmutableSet.of("a", "b")), ImmutableSet.of("a", "b"));
+        accessControlManager.checkCanKillQueryOwnedBy(new SystemSecurityContext(nonAsciiUser), "any");
+    }
+
+    @Test
+    public void testQueryNotSet()
+    {
+        SystemAccessControl accessControlManager = newFileBasedSystemAccessControl("catalog.json");
+
+        accessControlManager.checkCanExecuteQuery(new SystemSecurityContext(bob));
+        accessControlManager.checkCanViewQueryOwnedBy(new SystemSecurityContext(bob), "any");
+        assertEquals(accessControlManager.filterViewQueryOwnedBy(new SystemSecurityContext(bob), ImmutableSet.of("a", "b")), ImmutableSet.of("a", "b"));
+        accessControlManager.checkCanKillQueryOwnedBy(new SystemSecurityContext(bob), "any");
+    }
+
+    @Test
+    public void testDocsExample()
+    {
+        String rulesFile = new File("../presto-docs/src/main/sphinx/security/query-access.json").getAbsolutePath();
+        SystemAccessControl accessControlManager = newFileBasedSystemAccessControl(ImmutableMap.of("security.config-file", rulesFile));
+
+        accessControlManager.checkCanExecuteQuery(new SystemSecurityContext(admin));
+        accessControlManager.checkCanViewQueryOwnedBy(new SystemSecurityContext(admin), "any");
+        assertEquals(accessControlManager.filterViewQueryOwnedBy(new SystemSecurityContext(admin), ImmutableSet.of("a", "b")), ImmutableSet.of("a", "b"));
+        accessControlManager.checkCanKillQueryOwnedBy(new SystemSecurityContext(admin), "any");
+
+        accessControlManager.checkCanExecuteQuery(new SystemSecurityContext(alice));
+        assertThrows(AccessDeniedException.class, () -> accessControlManager.checkCanViewQueryOwnedBy(new SystemSecurityContext(alice), "any"));
+        assertEquals(accessControlManager.filterViewQueryOwnedBy(new SystemSecurityContext(alice), ImmutableSet.of("a", "b")), ImmutableSet.of());
+        accessControlManager.checkCanKillQueryOwnedBy(new SystemSecurityContext(alice), "any");
+
+        accessControlManager.checkCanExecuteQuery(new SystemSecurityContext(bob));
+        assertThrows(AccessDeniedException.class, () -> accessControlManager.checkCanViewQueryOwnedBy(new SystemSecurityContext(bob), "any"));
+        assertEquals(accessControlManager.filterViewQueryOwnedBy(new SystemSecurityContext(bob), ImmutableSet.of("a", "b")), ImmutableSet.of());
+        assertThrows(AccessDeniedException.class, () -> accessControlManager.checkCanKillQueryOwnedBy(new SystemSecurityContext(bob), "any"));
+    }
+
+    @Test
+    public void testSchemaOperations()
+    {
+        SystemAccessControl accessControl = newFileBasedSystemAccessControl("catalog.json");
+
+        PrestoPrincipal user = new PrestoPrincipal(PrincipalType.USER, "some_user");
+        PrestoPrincipal role = new PrestoPrincipal(PrincipalType.ROLE, "some_user");
+
+        accessControl.checkCanSetSchemaAuthorization(new SystemSecurityContext(admin), new CatalogSchemaName("alice-catalog", "some_schema"), user);
+        accessControl.checkCanSetSchemaAuthorization(new SystemSecurityContext(admin), new CatalogSchemaName("alice-catalog", "some_schema"), role);
+
+        accessControl.checkCanSetSchemaAuthorization(new SystemSecurityContext(alice), new CatalogSchemaName("alice-catalog", "some_schema"), user);
+        accessControl.checkCanSetSchemaAuthorization(new SystemSecurityContext(alice), new CatalogSchemaName("alice-catalog", "some_schema"), role);
+
+        assertThatThrownBy(() -> accessControl.checkCanSetSchemaAuthorization(new SystemSecurityContext(bob), new CatalogSchemaName("alice-catalog", "some_schema"), user))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageStartingWith("Access Denied: Cannot set authorization for schema alice-catalog.some_schema");
+
+        assertThatThrownBy(() -> accessControl.checkCanSetSchemaAuthorization(new SystemSecurityContext(bob), new CatalogSchemaName("alice-catalog", "some_schema"), role))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageStartingWith("Access Denied: Cannot set authorization for schema alice-catalog.some_schema");
+
+        assertThatThrownBy(() -> accessControl.checkCanSetSchemaAuthorization(new SystemSecurityContext(alice), new CatalogSchemaName("secret", "some_schema"), user))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageStartingWith("Access Denied: Cannot set authorization for schema secret.some_schema");
+
+        assertThatThrownBy(() -> accessControl.checkCanSetSchemaAuthorization(new SystemSecurityContext(alice), new CatalogSchemaName("secret", "some_schema"), role))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageStartingWith("Access Denied: Cannot set authorization for schema secret.some_schema");
     }
 
     @Test

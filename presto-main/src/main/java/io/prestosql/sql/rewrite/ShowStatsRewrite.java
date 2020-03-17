@@ -30,7 +30,6 @@ import io.prestosql.spi.statistics.Estimate;
 import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.type.BigintType;
 import io.prestosql.spi.type.DecimalType;
-import io.prestosql.spi.type.DoubleType;
 import io.prestosql.spi.type.IntegerType;
 import io.prestosql.spi.type.RealType;
 import io.prestosql.spi.type.SmallintType;
@@ -48,7 +47,9 @@ import io.prestosql.sql.tree.Cast;
 import io.prestosql.sql.tree.DoubleLiteral;
 import io.prestosql.sql.tree.Expression;
 import io.prestosql.sql.tree.Node;
+import io.prestosql.sql.tree.NodeRef;
 import io.prestosql.sql.tree.NullLiteral;
+import io.prestosql.sql.tree.Parameter;
 import io.prestosql.sql.tree.QualifiedName;
 import io.prestosql.sql.tree.Query;
 import io.prestosql.sql.tree.QuerySpecification;
@@ -72,12 +73,14 @@ import static io.prestosql.metadata.MetadataUtil.createQualifiedObjectName;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.prestosql.spi.type.DateType.DATE;
-import static io.prestosql.spi.type.StandardTypes.DOUBLE;
-import static io.prestosql.spi.type.StandardTypes.VARCHAR;
+import static io.prestosql.spi.type.DoubleType.DOUBLE;
+import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.sql.QueryUtil.aliased;
+import static io.prestosql.sql.QueryUtil.query;
 import static io.prestosql.sql.QueryUtil.selectAll;
 import static io.prestosql.sql.QueryUtil.simpleQuery;
 import static io.prestosql.sql.analyzer.SemanticExceptions.semanticException;
+import static io.prestosql.sql.analyzer.TypeSignatureTranslator.toSqlType;
 import static io.prestosql.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
 import static java.lang.Math.round;
 import static java.util.Objects.requireNonNull;
@@ -85,11 +88,11 @@ import static java.util.Objects.requireNonNull;
 public class ShowStatsRewrite
         implements StatementRewrite.Rewrite
 {
-    private static final Expression NULL_DOUBLE = new Cast(new NullLiteral(), DOUBLE);
-    private static final Expression NULL_VARCHAR = new Cast(new NullLiteral(), VARCHAR);
+    private static final Expression NULL_DOUBLE = new Cast(new NullLiteral(), toSqlType(DOUBLE));
+    private static final Expression NULL_VARCHAR = new Cast(new NullLiteral(), toSqlType(VARCHAR));
 
     @Override
-    public Statement rewrite(Session session, Metadata metadata, SqlParser parser, Optional<QueryExplainer> queryExplainer, Statement node, List<Expression> parameters, AccessControl accessControl, WarningCollector warningCollector)
+    public Statement rewrite(Session session, Metadata metadata, SqlParser parser, Optional<QueryExplainer> queryExplainer, Statement node, List<Expression> parameters, Map<NodeRef<Parameter>, Expression> parameterLookup, AccessControl accessControl, WarningCollector warningCollector)
     {
         return (Statement) new Visitor(metadata, session, parameters, queryExplainer, warningCollector).process(node, null);
     }
@@ -120,19 +123,17 @@ public class ShowStatsRewrite
             if (node.getRelation() instanceof TableSubquery) {
                 Query query = ((TableSubquery) node.getRelation()).getQuery();
                 QuerySpecification specification = (QuerySpecification) query.getQueryBody();
-                Plan plan = queryExplainer.get().getLogicalPlan(session, new Query(Optional.empty(), specification, Optional.empty(), Optional.empty(), Optional.empty()), parameters, warningCollector);
+                Plan plan = queryExplainer.get().getLogicalPlan(session, query(specification), parameters, warningCollector);
                 validateShowStatsSubquery(node, query, specification, plan);
                 Table table = (Table) specification.getFrom().get();
                 Constraint constraint = getConstraint(plan);
                 return rewriteShowStats(node, table, constraint);
             }
-            else if (node.getRelation() instanceof Table) {
+            if (node.getRelation() instanceof Table) {
                 Table table = (Table) node.getRelation();
                 return rewriteShowStats(node, table, Constraint.alwaysTrue());
             }
-            else {
-                throw new IllegalArgumentException("Expected either TableSubquery or Table as relation");
-            }
+            throw new IllegalArgumentException("Expected either TableSubquery or Table as relation");
         }
 
         private void validateShowStatsSubquery(ShowStats node, Query query, QuerySpecification querySpecification, Plan plan)
@@ -311,7 +312,7 @@ public class ShowStatsRewrite
             if (type.equals(BigintType.BIGINT) || type.equals(IntegerType.INTEGER) || type.equals(SmallintType.SMALLINT) || type.equals(TinyintType.TINYINT)) {
                 return new StringLiteral(Long.toString(round(value)));
             }
-            if (type.equals(DoubleType.DOUBLE) || type instanceof DecimalType) {
+            if (type.equals(DOUBLE) || type instanceof DecimalType) {
                 return new StringLiteral(Double.toString(value));
             }
             if (type.equals(RealType.REAL)) {

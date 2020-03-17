@@ -23,6 +23,7 @@ import io.prestosql.plugin.tpch.TpchConnectorFactory;
 import io.prestosql.sql.planner.LogicalPlanner;
 import io.prestosql.sql.planner.Plan;
 import io.prestosql.sql.planner.RuleStatsRecorder;
+import io.prestosql.sql.planner.SubPlan;
 import io.prestosql.sql.planner.iterative.IterativeOptimizer;
 import io.prestosql.sql.planner.iterative.rule.RemoveRedundantIdentityProjections;
 import io.prestosql.sql.planner.optimizations.PlanOptimizer;
@@ -39,13 +40,15 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import static io.airlift.testing.Closeables.closeAllRuntimeException;
+import static io.prestosql.sql.planner.LogicalPlanner.Stage.OPTIMIZED;
+import static io.prestosql.sql.planner.LogicalPlanner.Stage.OPTIMIZED_AND_VALIDATED;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
 public class BasePlanTest
 {
-    private final LocalQueryRunnerSupplier queryRunnerSupplier;
+    private final Map<String, String> sessionProperties;
     private LocalQueryRunner queryRunner;
 
     public BasePlanTest()
@@ -55,15 +58,11 @@ public class BasePlanTest
 
     public BasePlanTest(Map<String, String> sessionProperties)
     {
-        this.queryRunnerSupplier = () -> createQueryRunner(sessionProperties);
+        this.sessionProperties = requireNonNull(sessionProperties, "sessionProperties is null");
     }
 
-    public BasePlanTest(LocalQueryRunnerSupplier supplier)
-    {
-        this.queryRunnerSupplier = requireNonNull(supplier, "queryRunnerSupplier is null");
-    }
-
-    private static LocalQueryRunner createQueryRunner(Map<String, String> sessionProperties)
+    // Subclasses should implement this method to inject their own query runners
+    protected LocalQueryRunner createLocalQueryRunner()
     {
         Session.SessionBuilder sessionBuilder = testSessionBuilder()
                 .setCatalog("local")
@@ -72,7 +71,7 @@ public class BasePlanTest
 
         sessionProperties.entrySet().forEach(entry -> sessionBuilder.setSystemProperty(entry.getKey(), entry.getValue()));
 
-        LocalQueryRunner queryRunner = new LocalQueryRunner(sessionBuilder.build());
+        LocalQueryRunner queryRunner = LocalQueryRunner.create(sessionBuilder.build());
 
         queryRunner.createCatalog(queryRunner.getDefaultSession().getCatalog().get(),
                 new TpchConnectorFactory(1),
@@ -83,7 +82,7 @@ public class BasePlanTest
     @BeforeClass
     public final void initPlanTest()
     {
-        queryRunner = queryRunnerSupplier.get();
+        this.queryRunner = createLocalQueryRunner();
     }
 
     @AfterClass(alwaysRun = true)
@@ -105,7 +104,12 @@ public class BasePlanTest
 
     protected void assertPlan(String sql, PlanMatchPattern pattern)
     {
-        assertPlan(sql, LogicalPlanner.Stage.OPTIMIZED_AND_VALIDATED, pattern);
+        assertPlan(sql, OPTIMIZED_AND_VALIDATED, pattern);
+    }
+
+    protected void assertPlan(String sql, Session session, PlanMatchPattern pattern)
+    {
+        assertPlanWithSession(sql, session, true, pattern);
     }
 
     protected void assertPlan(String sql, LogicalPlanner.Stage stage, PlanMatchPattern pattern)
@@ -117,7 +121,7 @@ public class BasePlanTest
 
     protected void assertPlan(String sql, PlanMatchPattern pattern, List<PlanOptimizer> optimizers)
     {
-        assertPlan(sql, LogicalPlanner.Stage.OPTIMIZED, pattern, optimizers);
+        assertPlan(sql, OPTIMIZED, pattern, optimizers);
     }
 
     protected void assertPlan(String sql, LogicalPlanner.Stage stage, PlanMatchPattern pattern, Predicate<PlanOptimizer> optimizerPredicate)
@@ -151,7 +155,7 @@ public class BasePlanTest
     protected void assertMinimallyOptimizedPlan(@Language("SQL") String sql, PlanMatchPattern pattern)
     {
         List<PlanOptimizer> optimizers = ImmutableList.of(
-                new UnaliasSymbolReferences(),
+                new UnaliasSymbolReferences(getQueryRunner().getMetadata()),
                 new PruneUnreferencedOutputs(),
                 new IterativeOptimizer(
                         new RuleStatsRecorder(),
@@ -159,13 +163,13 @@ public class BasePlanTest
                         queryRunner.getCostCalculator(),
                         ImmutableSet.of(new RemoveRedundantIdentityProjections())));
 
-        assertPlan(sql, LogicalPlanner.Stage.OPTIMIZED, pattern, optimizers);
+        assertPlan(sql, OPTIMIZED, pattern, optimizers);
     }
 
     protected void assertPlanWithSession(@Language("SQL") String sql, Session session, boolean forceSingleNode, PlanMatchPattern pattern)
     {
         queryRunner.inTransaction(session, transactionSession -> {
-            Plan actualPlan = queryRunner.createPlan(transactionSession, sql, LogicalPlanner.Stage.OPTIMIZED_AND_VALIDATED, forceSingleNode, WarningCollector.NOOP);
+            Plan actualPlan = queryRunner.createPlan(transactionSession, sql, OPTIMIZED_AND_VALIDATED, forceSingleNode, WarningCollector.NOOP);
             PlanAssert.assertPlan(transactionSession, queryRunner.getMetadata(), queryRunner.getStatsCalculator(), actualPlan, pattern);
             return null;
         });
@@ -174,7 +178,7 @@ public class BasePlanTest
     protected void assertPlanWithSession(@Language("SQL") String sql, Session session, boolean forceSingleNode, PlanMatchPattern pattern, Consumer<Plan> planValidator)
     {
         queryRunner.inTransaction(session, transactionSession -> {
-            Plan actualPlan = queryRunner.createPlan(transactionSession, sql, LogicalPlanner.Stage.OPTIMIZED_AND_VALIDATED, forceSingleNode, WarningCollector.NOOP);
+            Plan actualPlan = queryRunner.createPlan(transactionSession, sql, OPTIMIZED_AND_VALIDATED, forceSingleNode, WarningCollector.NOOP);
             PlanAssert.assertPlan(transactionSession, queryRunner.getMetadata(), queryRunner.getStatsCalculator(), actualPlan, pattern);
             planValidator.accept(actualPlan);
             return null;
@@ -183,7 +187,7 @@ public class BasePlanTest
 
     protected Plan plan(String sql)
     {
-        return plan(sql, LogicalPlanner.Stage.OPTIMIZED_AND_VALIDATED);
+        return plan(sql, OPTIMIZED_AND_VALIDATED);
     }
 
     protected Plan plan(String sql, LogicalPlanner.Stage stage)
@@ -201,8 +205,21 @@ public class BasePlanTest
         }
     }
 
-    public interface LocalQueryRunnerSupplier
+    protected SubPlan subplan(String sql, LogicalPlanner.Stage stage, boolean forceSingleNode)
     {
-        LocalQueryRunner get();
+        return subplan(sql, stage, forceSingleNode, getQueryRunner().getDefaultSession());
+    }
+
+    protected SubPlan subplan(String sql, LogicalPlanner.Stage stage, boolean forceSingleNode, Session session)
+    {
+        try {
+            return queryRunner.inTransaction(session, transactionSession -> {
+                Plan plan = queryRunner.createPlan(transactionSession, sql, stage, forceSingleNode, WarningCollector.NOOP);
+                return queryRunner.createSubPlans(transactionSession, plan, forceSingleNode);
+            });
+        }
+        catch (RuntimeException e) {
+            throw new AssertionError("Planning failed for SQL: " + sql, e);
+        }
     }
 }
