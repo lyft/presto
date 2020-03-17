@@ -115,6 +115,7 @@ public class OrcPageSource
         for (int i = 0; i < columnAdaptations.size(); i++) {
             blocks[i] = columnAdaptations.get(i).block(page, maskDeletedRowsFunction);
         }
+
         return new Page(maskDeletedRowsFunction.getPositionCount(), blocks);
     }
 
