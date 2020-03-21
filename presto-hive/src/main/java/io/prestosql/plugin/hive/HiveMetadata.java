@@ -1926,6 +1926,7 @@ public class HiveMetadata
         }
     }
 
+    @Override
     public Optional<ProjectionApplicationResult<ConnectorTableHandle>> applyProjection(
             ConnectorSession session,
             ConnectorTableHandle handle,
