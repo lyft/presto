@@ -30,6 +30,7 @@ import io.prestosql.plugin.hive.DeleteDeltaLocations;
 import io.prestosql.plugin.hive.FileFormatDataSourceStats;
 import io.prestosql.plugin.hive.HdfsEnvironment;
 import io.prestosql.plugin.hive.HiveColumnHandle;
+import io.prestosql.plugin.hive.HiveColumnProjectionInfo;
 import io.prestosql.plugin.hive.HivePageSourceFactory;
 import io.prestosql.plugin.hive.ReaderProjections;
 import io.prestosql.spi.PrestoException;
@@ -47,6 +48,8 @@ import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.FileMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
+import org.apache.parquet.io.ColumnIO;
+import org.apache.parquet.io.GroupColumnIO;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.schema.MessageType;
 import org.joda.time.DateTimeZone;
@@ -79,7 +82,7 @@ import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_MISSING_DATA;
 import static io.prestosql.plugin.hive.HiveSessionProperties.getParquetMaxReadBlockSize;
 import static io.prestosql.plugin.hive.HiveSessionProperties.isFailOnCorruptedParquetStatistics;
 import static io.prestosql.plugin.hive.HiveSessionProperties.isUseParquetColumnNames;
-import static io.prestosql.plugin.hive.ReaderProjections.projectBaseColumns;
+import static io.prestosql.plugin.hive.ReaderProjections.projectSufficientColumns;
 import static io.prestosql.plugin.hive.parquet.HdfsParquetDataSource.buildHdfsParquetDataSource;
 import static io.prestosql.plugin.hive.parquet.ParquetColumnIOConverter.constructField;
 import static io.prestosql.plugin.hive.util.HiveUtil.getDeserializerClassName;
@@ -132,7 +135,7 @@ public class ParquetPageSourceFactory
         // Ignore predicates on partial columns for now.
         effectivePredicate = effectivePredicate.transform(x -> x.isBaseColumn() ? x : null);
 
-        Optional<ReaderProjections> projectedReaderColumns = projectBaseColumns(columns);
+        Optional<ReaderProjections> projectedReaderColumns = projectSufficientColumns(columns);
 
         ConnectorPageSource parquetPageSource = createParquetPageSource(
                 hdfsEnvironment,
@@ -231,8 +234,9 @@ public class ParquetPageSourceFactory
                 prestoTypes.add(column.getType());
 
                 internalFields.add(parquetField.flatMap(field -> {
-                    String columnName = useParquetColumnNames ? column.getName() : fileSchema.getFields().get(column.getBaseHiveColumnIndex()).getName();
-                    return constructField(column.getType(), lookupColumnByName(messageColumnIO, columnName));
+                    String columnName = useParquetColumnNames ? column.getBaseColumnName() : fileSchema.getFields().get(column.getBaseHiveColumnIndex()).getName();
+                    ColumnRef columnRef = resolveNestedColumn(new ColumnRef(column.getBaseType(), lookupColumnByName(messageColumnIO, columnName)), column.getHiveColumnProjectionInfo());
+                    return constructField(columnRef.getType(), columnRef.getColumn());
                 }));
             }
 
@@ -264,6 +268,45 @@ public class ParquetPageSourceFactory
         }
     }
 
+    private static class ColumnRef
+    {
+        private Type type;
+        private ColumnIO column;
+
+        public ColumnRef(Type type, ColumnIO column)
+        {
+            this.type = requireNonNull(type, "type is null");
+            this.column = column;
+        }
+
+        public Type getType()
+        {
+            return type;
+        }
+
+        public ColumnIO getColumn()
+        {
+            return column;
+        }
+    }
+
+    private static ColumnRef resolveNestedColumn(ColumnRef columnRef, Optional<HiveColumnProjectionInfo> optProjectionInfo)
+    {
+        if (!optProjectionInfo.isPresent()) {
+            return columnRef;
+        }
+        HiveColumnProjectionInfo projectionInfo = optProjectionInfo.get();
+        int length = projectionInfo.getDereferenceIndices().size();
+        Type type = columnRef.getType();
+        ColumnIO column = columnRef.getColumn();
+        int i = 0;
+        do {
+            type = type.getTypeParameters().get(projectionInfo.getDereferenceIndices().get(i));
+            column = lookupColumnByName((GroupColumnIO) column, projectionInfo.getDereferenceNames().get(i));
+        } while (++i < length);
+        return new ColumnRef(type, column);
+    }
+
     public static TupleDomain<ColumnDescriptor> getParquetTupleDomain(Map<List<String>, RichColumnDescriptor> descriptorsByPath, TupleDomain<HiveColumnHandle> effectivePredicate)
     {
         if (effectivePredicate.isNone()) {
@@ -289,7 +332,7 @@ public class ParquetPageSourceFactory
     private static org.apache.parquet.schema.Type getParquetType(HiveColumnHandle column, MessageType messageType, boolean useParquetColumnNames)
     {
         if (useParquetColumnNames) {
-            return getParquetTypeByName(column.getName(), messageType);
+            return getParquetTypeByName(column.getBaseColumnName(), messageType);
         }
 
         if (column.getBaseHiveColumnIndex() < messageType.getFieldCount()) {
