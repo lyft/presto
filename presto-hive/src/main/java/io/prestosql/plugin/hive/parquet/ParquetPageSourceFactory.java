@@ -16,7 +16,6 @@ package io.prestosql.plugin.hive.parquet;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Streams;
 import io.prestosql.memory.context.AggregatedMemoryContext;
 import io.prestosql.parquet.Field;
 import io.prestosql.parquet.ParquetCorruptionException;
@@ -48,6 +47,7 @@ import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.FileMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.io.MessageColumnIO;
+import org.apache.parquet.schema.GroupType;
 import org.apache.parquet.schema.MessageType;
 import org.joda.time.DateTimeZone;
 
@@ -80,6 +80,7 @@ import static io.prestosql.plugin.hive.HiveSessionProperties.getParquetMaxReadBl
 import static io.prestosql.plugin.hive.HiveSessionProperties.isFailOnCorruptedParquetStatistics;
 import static io.prestosql.plugin.hive.HiveSessionProperties.isUseParquetColumnNames;
 import static io.prestosql.plugin.hive.ReaderProjections.projectBaseColumns;
+import static io.prestosql.plugin.hive.ReaderProjections.projectSufficientColumns;
 import static io.prestosql.plugin.hive.parquet.HdfsParquetDataSource.buildHdfsParquetDataSource;
 import static io.prestosql.plugin.hive.parquet.ParquetColumnIOConverter.constructField;
 import static io.prestosql.plugin.hive.util.HiveUtil.getDeserializerClassName;
@@ -131,10 +132,9 @@ public class ParquetPageSourceFactory
 
         // Ignore predicates on partial columns for now.
         effectivePredicate = effectivePredicate.transform(x -> x.isBaseColumn() ? x : null);
+        boolean useParquetColumnNames = isUseParquetColumnNames(session);
 
-        Optional<ReaderProjections> projectedReaderColumns = projectBaseColumns(columns);
-
-        ConnectorPageSource parquetPageSource = createParquetPageSource(
+        ParquetReader parquetReader = createParquetReader(
                 hdfsEnvironment,
                 session.getUser(),
                 configuration,
@@ -142,20 +142,50 @@ public class ParquetPageSourceFactory
                 start,
                 length,
                 fileSize,
-                projectedReaderColumns
+                projectSufficientColumns(columns) // TODO: method that returns only list of columns
                         .map(projection -> projection.getReaderColumns())
                         .orElse(columns),
-                isUseParquetColumnNames(session),
+                useParquetColumnNames,
                 options
                         .withFailOnCorruptedStatistics(isFailOnCorruptedParquetStatistics(session))
                         .withMaxReadBlockSize(getParquetMaxReadBlockSize(session)),
                 effectivePredicate,
                 stats);
 
+        Optional<ReaderProjections> projectedReaderColumns = projectBaseColumns(columns);
+        ConnectorPageSource parquetPageSource = createPageSource(
+                parquetReader,
+                projectedReaderColumns.map(projection -> projection.getReaderColumns()).orElse(columns),
+                useParquetColumnNames);
         return Optional.of(new ReaderPageSourceWithProjections(parquetPageSource, projectedReaderColumns));
     }
 
-    private static ParquetPageSource createParquetPageSource(
+    private static ConnectorPageSource createPageSource(ParquetReader reader, List<HiveColumnHandle> columns, boolean useParquetColumnNames)
+    {
+        MessageType fileSchema = reader.getFileSchema();
+        MessageColumnIO messageColumn = reader.getMessageColumn();
+        List<Optional<org.apache.parquet.schema.Type>> parquetFields = columns.stream()
+                .map(column -> getParquetType(column, fileSchema, useParquetColumnNames))
+                .map(Optional::ofNullable)
+                .collect(toImmutableList());
+        ImmutableList.Builder<Type> prestoTypes = ImmutableList.builder();
+        ImmutableList.Builder<Optional<Field>> internalFields = ImmutableList.builder();
+        for (int columnIndex = 0; columnIndex < columns.size(); columnIndex++) {
+            HiveColumnHandle column = columns.get(columnIndex);
+            Optional<org.apache.parquet.schema.Type> parquetField = parquetFields.get(columnIndex);
+
+            prestoTypes.add(column.getBaseType());
+
+            internalFields.add(parquetField.flatMap(field -> {
+                String columnName = useParquetColumnNames ? column.getBaseColumnName() : fileSchema.getFields().get(column.getBaseHiveColumnIndex()).getName();
+                return constructField(column.getBaseType(), lookupColumnByName(messageColumn, columnName));
+            }));
+        }
+
+        return new ParquetPageSource(reader, prestoTypes.build(), internalFields.build());
+    }
+
+    private static ParquetReader createParquetReader(
             HdfsEnvironment hdfsEnvironment,
             String user,
             Configuration configuration,
@@ -184,16 +214,15 @@ public class ParquetPageSourceFactory
             MessageType fileSchema = fileMetaData.getSchema();
             dataSource = buildHdfsParquetDataSource(inputStream, path, fileSize, stats, options);
 
-            List<Optional<org.apache.parquet.schema.Type>> parquetFields = columns.stream()
-                    .map(column -> getParquetType(column, fileSchema, useParquetColumnNames))
-                    .map(Optional::ofNullable)
-                    .collect(toImmutableList());
+            Optional<MessageType> message = columns.stream()
+                    .filter(column -> column.getColumnType() == REGULAR)
+                    .map(column -> getColumnType(column, fileSchema, useParquetColumnNames))
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .map(type -> new MessageType(fileSchema.getName(), type))
+                    .reduce(MessageType::union);
 
-            MessageType requestedSchema = new MessageType(
-                    fileSchema.getName(),
-                    parquetFields.stream()
-                            .flatMap(Streams::stream)
-                            .collect(toImmutableList()));
+            MessageType requestedSchema = message.orElse(new MessageType(fileSchema.getName(), ImmutableList.of()));
 
             ImmutableList.Builder<BlockMetaData> footerBlocks = ImmutableList.builder();
             for (BlockMetaData block : parquetMetadata.getBlocks()) {
@@ -215,28 +244,13 @@ public class ParquetPageSourceFactory
             }
             MessageColumnIO messageColumnIO = getColumnIO(fileSchema, requestedSchema);
             ParquetReader parquetReader = new ParquetReader(
-                    Optional.ofNullable(fileMetaData.getCreatedBy()),
-                    messageColumnIO,
+                    fileMetaData,
+                    requestedSchema,
                     blocks.build(),
                     dataSource,
                     systemMemoryContext,
                     options);
-
-            ImmutableList.Builder<Type> prestoTypes = ImmutableList.builder();
-            ImmutableList.Builder<Optional<Field>> internalFields = ImmutableList.builder();
-            for (int columnIndex = 0; columnIndex < columns.size(); columnIndex++) {
-                HiveColumnHandle column = columns.get(columnIndex);
-                Optional<org.apache.parquet.schema.Type> parquetField = parquetFields.get(columnIndex);
-
-                prestoTypes.add(column.getType());
-
-                internalFields.add(parquetField.flatMap(field -> {
-                    String columnName = useParquetColumnNames ? column.getName() : fileSchema.getFields().get(column.getBaseHiveColumnIndex()).getName();
-                    return constructField(column.getType(), lookupColumnByName(messageColumnIO, columnName));
-                }));
-            }
-
-            return new ParquetPageSource(parquetReader, prestoTypes.build(), internalFields.build());
+            return parquetReader;
         }
         catch (Exception e) {
             try {
@@ -264,6 +278,50 @@ public class ParquetPageSourceFactory
         }
     }
 
+    public static Optional<org.apache.parquet.schema.Type> getParquetType(GroupType groupType, boolean useParquetColumnNames, HiveColumnHandle column)
+    {
+        org.apache.parquet.schema.Type type = null;
+        if (useParquetColumnNames) {
+            type = getParquetTypeByName(column.getBaseColumnName(), groupType);
+        }
+        else if (column.getBaseHiveColumnIndex() < groupType.getFieldCount()) {
+            type = groupType.getType(column.getBaseHiveColumnIndex());
+        }
+
+        if (type == null) {
+            return Optional.empty();
+        }
+        return Optional.of(type);
+    }
+
+    public static Optional<org.apache.parquet.schema.Type> getColumnType(HiveColumnHandle column, MessageType messageType, boolean useParquetColumnNames)
+    {
+        Optional<org.apache.parquet.schema.Type> columnType = getParquetType(messageType, useParquetColumnNames, column);
+        if (!columnType.isPresent() || !column.getHiveColumnProjectionInfo().isPresent()) {
+            return columnType;
+        }
+        GroupType baseType = columnType.get().asGroupType();
+        ImmutableList.Builder<org.apache.parquet.schema.Type> typeBuilder = ImmutableList.builder();
+        org.apache.parquet.schema.Type parentType = baseType;
+
+        for (String name : column.getHiveColumnProjectionInfo().get().getDereferenceNames()) {
+            org.apache.parquet.schema.Type childType = getParquetTypeByName(name, parentType.asGroupType());
+            if (childType == null) {
+                return Optional.empty();
+            }
+            typeBuilder.add(childType);
+            parentType = childType;
+        }
+
+        List<org.apache.parquet.schema.Type> subfieldTypes = typeBuilder.build();
+        org.apache.parquet.schema.Type type = subfieldTypes.get(subfieldTypes.size() - 1);
+        for (int i = subfieldTypes.size() - 2; i >= 0; --i) {
+            GroupType groupType = subfieldTypes.get(i).asGroupType();
+            type = new GroupType(type.getRepetition(), groupType.getName(), ImmutableList.of(type));
+        }
+        return Optional.of(new GroupType(baseType.getRepetition(), baseType.getName(), ImmutableList.of(type)));
+    }
+
     public static TupleDomain<ColumnDescriptor> getParquetTupleDomain(Map<List<String>, RichColumnDescriptor> descriptorsByPath, TupleDomain<HiveColumnHandle> effectivePredicate)
     {
         if (effectivePredicate.isNone()) {
@@ -289,7 +347,7 @@ public class ParquetPageSourceFactory
     private static org.apache.parquet.schema.Type getParquetType(HiveColumnHandle column, MessageType messageType, boolean useParquetColumnNames)
     {
         if (useParquetColumnNames) {
-            return getParquetTypeByName(column.getName(), messageType);
+            return getParquetTypeByName(column.getBaseColumnName(), messageType);
         }
 
         if (column.getBaseHiveColumnIndex() < messageType.getFieldCount()) {
