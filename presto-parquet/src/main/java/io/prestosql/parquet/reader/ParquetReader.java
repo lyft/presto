@@ -42,8 +42,10 @@ import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnPath;
+import org.apache.parquet.hadoop.metadata.FileMetaData;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.io.PrimitiveColumnIO;
+import org.apache.parquet.schema.MessageType;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -54,6 +56,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.prestosql.parquet.ParquetTypeUtils.getColumnIO;
 import static io.prestosql.parquet.ParquetValidationUtils.validateParquet;
 import static io.prestosql.parquet.reader.ListColumnReader.calculateCollectionOffsets;
 import static java.lang.Math.max;
@@ -69,8 +72,10 @@ public class ParquetReader
     private static final int BATCH_SIZE_GROWTH_FACTOR = 2;
 
     private final Optional<String> fileCreatedBy;
+    private final MessageType fileSchema;
+
     private final List<BlockMetaData> blocks;
-    private final List<PrimitiveColumnIO> columns;
+    private final MessageColumnIO messageColumn;
     private final ParquetDataSource dataSource;
     private final AggregatedMemoryContext systemMemoryContext;
 
@@ -90,21 +95,23 @@ public class ParquetReader
     private final Map<ChunkKey, ChunkReader> chunkReaders;
 
     public ParquetReader(
-            Optional<String> fileCreatedBy,
-            MessageColumnIO messageColumnIO,
+            FileMetaData fileMetaData,
+            MessageType requestedSchema,
             List<BlockMetaData> blocks,
             ParquetDataSource dataSource,
             AggregatedMemoryContext systemMemoryContext,
             ParquetReaderOptions options)
             throws IOException
     {
-        this.fileCreatedBy = requireNonNull(fileCreatedBy, "fileCreatedBy is null");
+        this.fileSchema = requireNonNull(fileMetaData, "fileMetaData is null").getSchema();
+        this.fileCreatedBy = Optional.ofNullable(fileMetaData.getCreatedBy());
         this.blocks = blocks;
         this.dataSource = requireNonNull(dataSource, "dataSource is null");
         this.systemMemoryContext = requireNonNull(systemMemoryContext, "systemMemoryContext is null");
         this.currentRowGroupMemoryContext = systemMemoryContext.newAggregatedMemoryContext();
-        columns = messageColumnIO.getLeaves();
+        this.messageColumn = getColumnIO(fileSchema, requestedSchema);
         this.options = requireNonNull(options, "options is null");
+        List<PrimitiveColumnIO> columns = messageColumn.getLeaves();
         columnReaders = new PrimitiveColumnReader[columns.size()];
         maxBytesPerCell = new long[columns.size()];
 
@@ -120,6 +127,16 @@ public class ParquetReader
         }
 
         chunkReaders = dataSource.planRead(ranges);
+    }
+
+    public MessageType getFileSchema()
+    {
+        return fileSchema;
+    }
+
+    public MessageColumnIO getMessageColumn()
+    {
+        return this.messageColumn;
     }
 
     @Override
@@ -171,7 +188,7 @@ public class ParquetReader
             return;
         }
 
-        for (int column = 0; column < columns.size(); column++) {
+        for (int column = 0; column < messageColumn.getLeaves().size(); column++) {
             ChunkReader reader = chunkReaders.get(new ChunkKey(column, currentRowGroup));
             if (reader != null) {
                 reader.free();
@@ -281,7 +298,7 @@ public class ParquetReader
 
     private void initializeColumnReaders()
     {
-        for (PrimitiveColumnIO columnIO : columns) {
+        for (PrimitiveColumnIO columnIO : messageColumn.getLeaves()) {
             RichColumnDescriptor column = new RichColumnDescriptor(columnIO.getColumnDescriptor(), columnIO.getType().asPrimitiveType());
             columnReaders[columnIO.getId()] = PrimitiveColumnReader.createReader(column);
         }

@@ -396,8 +396,8 @@ public class IcebergPageSourceProvider
 
             MessageColumnIO messageColumnIO = getColumnIO(fileSchema, requestedSchema);
             ParquetReader parquetReader = new ParquetReader(
-                    Optional.ofNullable(fileMetaData.getCreatedBy()),
-                    messageColumnIO,
+                    fileMetaData,
+                    requestedSchema,
                     blocks,
                     dataSource,
                     systemMemoryContext,
