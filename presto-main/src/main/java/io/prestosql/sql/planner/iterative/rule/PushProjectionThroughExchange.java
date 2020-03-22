@@ -29,6 +29,7 @@ import io.prestosql.sql.planner.plan.ProjectNode;
 import io.prestosql.sql.tree.Expression;
 import io.prestosql.sql.tree.SymbolReference;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ import static io.prestosql.sql.planner.iterative.rule.Util.restrictOutputs;
 import static io.prestosql.sql.planner.plan.Patterns.exchange;
 import static io.prestosql.sql.planner.plan.Patterns.project;
 import static io.prestosql.sql.planner.plan.Patterns.source;
+import static java.util.stream.Collectors.toList;
 
 /**
  * Transforms:
@@ -84,13 +86,37 @@ public class PushProjectionThroughExchange
         ExchangeNode exchange = captures.get(CHILD);
         Set<Symbol> partitioningColumns = exchange.getPartitioningScheme().getPartitioning().getColumns();
 
+        // Prepare new partitioning scheme for the exchange node
+        List<Symbol> output = new ArrayList<>();
+        output.addAll(partitioningColumns);
+        // Add hashcolumn if not already added
+        exchange.getPartitioningScheme().getHashColumn().ifPresent(hashColumn -> {
+            if (!output.contains(hashColumn)) {
+                output.add(hashColumn);
+            }
+        });
+        // Add ordering columns if not already added
+        exchange.getOrderingScheme().ifPresent(orderingScheme -> {
+            for (Symbol orderBySymbol : orderingScheme.getOrderBy()) {
+                if (!output.contains(orderBySymbol)) {
+                    output.add(orderBySymbol);
+                }
+            }
+        });
+        // Add assignments if not already added (this is possible in case of identity non-renaming projections)
+        project.getAssignments().getSymbols().forEach(symbol -> {
+            if (!output.contains(symbol)) {
+                output.add(symbol);
+            }
+        });
+
         ImmutableList.Builder<PlanNode> newSourceBuilder = ImmutableList.builder();
         ImmutableList.Builder<List<Symbol>> inputsBuilder = ImmutableList.builder();
         for (int i = 0; i < exchange.getSources().size(); i++) {
             Map<Symbol, SymbolReference> outputToInputMap = extractExchangeOutputToInput(exchange, i);
 
             Assignments.Builder projections = Assignments.builder();
-            ImmutableList.Builder<Symbol> inputs = ImmutableList.builder();
+            List<Symbol> inputs = new ArrayList<>();
 
             // Need to retain the partition keys for the exchange
             partitioningColumns.stream()
@@ -103,16 +129,23 @@ public class PushProjectionThroughExchange
 
             if (exchange.getPartitioningScheme().getHashColumn().isPresent()) {
                 // Need to retain the hash symbol for the exchange
-                projections.put(exchange.getPartitioningScheme().getHashColumn().get(), exchange.getPartitioningScheme().getHashColumn().get().toSymbolReference());
-                inputs.add(exchange.getPartitioningScheme().getHashColumn().get());
+                exchange.getPartitioningScheme().getHashColumn()
+                        .map(outputToInputMap::get)
+                        // Do not add the same symbol twice
+                        .filter(symbol -> !inputs.contains(symbol))
+                        .ifPresent(hashColumnReference -> {
+                            Symbol symbol = Symbol.from(hashColumnReference);
+                            projections.put(symbol, hashColumnReference);
+                            inputs.add(symbol);
+                        });
             }
 
             if (exchange.getOrderingScheme().isPresent()) {
                 // need to retain ordering columns for the exchange
                 exchange.getOrderingScheme().get().getOrderBy().stream()
-                        // do not project the same symbol twice as ExchangeNode verifies that source input symbols match partitioning scheme outputLayout
-                        .filter(symbol -> !partitioningColumns.contains(symbol))
                         .map(outputToInputMap::get)
+                        // do not project the same symbol twice as ExchangeNode verifies that source input symbols match partitioning scheme outputLayout
+                        .filter(symbol -> (!inputs.contains(symbol)))
                         .forEach(nameReference -> {
                             Symbol symbol = Symbol.from(nameReference);
                             projections.put(symbol, nameReference);
@@ -122,32 +155,26 @@ public class PushProjectionThroughExchange
 
             for (Map.Entry<Symbol, Expression> projection : project.getAssignments().entrySet()) {
                 Expression translatedExpression = inlineSymbols(outputToInputMap, projection.getValue());
+
+                // Skip non-renaming identity projections if already considered, since we do the same for ExchangeNode.
+                if (projection.getKey().toSymbolReference().equals(projection.getValue()) &&
+                        inputs.stream().map(Symbol::toSymbolReference).collect(toList()).contains(translatedExpression)) {
+                    continue;
+                }
+
                 Type type = context.getSymbolAllocator().getTypes().get(projection.getKey());
                 Symbol symbol = context.getSymbolAllocator().newSymbol(translatedExpression, type);
                 projections.put(symbol, translatedExpression);
                 inputs.add(symbol);
             }
             newSourceBuilder.add(new ProjectNode(context.getIdAllocator().getNextId(), exchange.getSources().get(i), projections.build()));
-            inputsBuilder.add(inputs.build());
+            inputsBuilder.add(ImmutableList.copyOf(inputs));
         }
 
-        // Construct the output symbols in the same order as the sources
-        ImmutableList.Builder<Symbol> outputBuilder = ImmutableList.builder();
-        partitioningColumns.forEach(outputBuilder::add);
-        exchange.getPartitioningScheme().getHashColumn().ifPresent(outputBuilder::add);
-        if (exchange.getOrderingScheme().isPresent()) {
-            exchange.getOrderingScheme().get().getOrderBy().stream()
-                    .filter(symbol -> !partitioningColumns.contains(symbol))
-                    .forEach(outputBuilder::add);
-        }
-        for (Map.Entry<Symbol, Expression> projection : project.getAssignments().entrySet()) {
-            outputBuilder.add(projection.getKey());
-        }
-
-        // outputBuilder contains all partition and hash symbols so simply swap the output layout
+        // output contains all partition and hash symbols so simply swap the output layout
         PartitioningScheme partitioningScheme = new PartitioningScheme(
                 exchange.getPartitioningScheme().getPartitioning(),
-                outputBuilder.build(),
+                ImmutableList.copyOf(output),
                 exchange.getPartitioningScheme().getHashColumn(),
                 exchange.getPartitioningScheme().isReplicateNullsAndAny(),
                 exchange.getPartitioningScheme().getBucketToPartition());
