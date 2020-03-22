@@ -130,6 +130,13 @@ import io.prestosql.sql.planner.iterative.rule.TransformExistsApplyToCorrelatedJ
 import io.prestosql.sql.planner.iterative.rule.TransformUncorrelatedInPredicateSubqueryToSemiJoin;
 import io.prestosql.sql.planner.iterative.rule.TransformUncorrelatedSubqueryToJoin;
 import io.prestosql.sql.planner.iterative.rule.UnwrapCastInComparison;
+import io.prestosql.sql.planner.iterative.rule.dereference.ExtractDereferencesFromFilterAboveScan;
+import io.prestosql.sql.planner.iterative.rule.dereference.PushDownDereferenceThrough;
+import io.prestosql.sql.planner.iterative.rule.dereference.PushDownDereferenceThroughFilter;
+import io.prestosql.sql.planner.iterative.rule.dereference.PushDownDereferenceThroughJoin;
+import io.prestosql.sql.planner.iterative.rule.dereference.PushDownDereferenceThroughProject;
+import io.prestosql.sql.planner.iterative.rule.dereference.PushDownDereferenceThroughSemiJoin;
+import io.prestosql.sql.planner.iterative.rule.dereference.PushDownDereferenceThroughUnnest;
 import io.prestosql.sql.planner.optimizations.AddExchanges;
 import io.prestosql.sql.planner.optimizations.AddLocalExchanges;
 import io.prestosql.sql.planner.optimizations.BeginTableWrite;
@@ -150,6 +157,13 @@ import io.prestosql.sql.planner.optimizations.TableDeleteOptimizer;
 import io.prestosql.sql.planner.optimizations.TransformQuantifiedComparisonApplyToCorrelatedJoin;
 import io.prestosql.sql.planner.optimizations.UnaliasSymbolReferences;
 import io.prestosql.sql.planner.optimizations.WindowFilterPushDown;
+import io.prestosql.sql.planner.plan.AssignUniqueId;
+import io.prestosql.sql.planner.plan.LimitNode;
+import io.prestosql.sql.planner.plan.RowNumberNode;
+import io.prestosql.sql.planner.plan.SortNode;
+import io.prestosql.sql.planner.plan.TopNNode;
+import io.prestosql.sql.planner.plan.TopNRowNumberNode;
+import io.prestosql.sql.planner.plan.WindowNode;
 import org.weakref.jmx.MBeanExporter;
 
 import javax.annotation.PostConstruct;
@@ -251,7 +265,21 @@ public class PlanOptimizers
         Set<Rule<?>> projectionPushdownRules = ImmutableSet.of(
                 new PushProjectionIntoTableScan(metadata, typeAnalyzer),
                 new PushProjectionThroughUnion(),
-                new PushProjectionThroughExchange());
+                new PushProjectionThroughExchange(),
+                // Dereference pushdown rules
+                new PushDownDereferenceThroughProject(typeAnalyzer),
+                new PushDownDereferenceThroughUnnest(typeAnalyzer),
+                new PushDownDereferenceThroughSemiJoin(typeAnalyzer),
+                new PushDownDereferenceThroughJoin(typeAnalyzer),
+                new PushDownDereferenceThroughFilter(typeAnalyzer),
+                new ExtractDereferencesFromFilterAboveScan(typeAnalyzer),
+                new PushDownDereferenceThrough<>(AssignUniqueId.class, typeAnalyzer),
+                new PushDownDereferenceThrough<>(WindowNode.class, typeAnalyzer),
+                new PushDownDereferenceThrough<>(TopNNode.class, typeAnalyzer),
+                new PushDownDereferenceThrough<>(RowNumberNode.class, typeAnalyzer),
+                new PushDownDereferenceThrough<>(TopNRowNumberNode.class, typeAnalyzer),
+                new PushDownDereferenceThrough<>(SortNode.class, typeAnalyzer),
+                new PushDownDereferenceThrough<>(LimitNode.class, typeAnalyzer));
 
         IterativeOptimizer inlineProjections = new IterativeOptimizer(
                 ruleStats,
@@ -477,6 +505,7 @@ public class PlanOptimizers
                         estimatedExchangesCostCalculator,
                         ImmutableSet.of(new PushPredicateIntoTableScan(metadata, typeAnalyzer))),
                 projectionPushDown,
+                simplifyOptimizer,
                 new PruneUnreferencedOutputs(),
                 new IterativeOptimizer(
                         ruleStats,
@@ -565,6 +594,8 @@ public class PlanOptimizers
                 costCalculator,
                 ImmutableSet.of(new RemoveRedundantTableScanPredicate(metadata))));
         builder.add(projectionPushDown);
+        builder.add(new RemoveUnsupportedDynamicFilters(metadata));
+        builder.add(simplifyOptimizer);
         builder.add(inlineProjections);
         builder.add(new UnaliasSymbolReferences(metadata)); // Run unalias after merging projections to simplify projections more efficiently
         builder.add(new PruneUnreferencedOutputs());
