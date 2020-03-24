@@ -77,8 +77,8 @@ public class TestDereferencePushDown
                 output(ImmutableList.of("a_y"),
                         join(INNER, ImmutableList.of(equiJoinClause("a_y", "b_y")),
                                 anyTree(
-                                        strictProject(ImmutableMap.of("a_y", expression("msg.y")),
-                                                filter("msg.x > bigint '5'",
+                                        filter("a_x > bigint '5'",
+                                                strictProject(ImmutableMap.of("a_y", expression("msg.y"), "a_x", expression("msg.x")),
                                                         values("msg")))),
                                 anyTree(
                                         strictProject(ImmutableMap.of("b_y", expression("msg.y")),
@@ -159,14 +159,14 @@ public class TestDereferencePushDown
                                         values("msg"))))));
 
         assertPlan("WITH t(msg) AS (VALUES ROW(CAST(ROW(1, 2.0) AS ROW(x BIGINT, y DOUBLE))))" +
-                        "SELECT a.msg.y " +
+                        "SELECT a.msg.x " +
                         "FROM t a JOIN t b ON a.msg.y = b.msg.y " +
                         "WHERE a.msg.x > BIGINT '5' " +
                         "LIMIT 100",
                 anyTree(join(INNER, ImmutableList.of(equiJoinClause("a_y", "b_y")),
                         anyTree(
-                                strictProject(ImmutableMap.of("a_y", expression("msg.y")),
-                                        filter("msg.x > bigint '5'",
+                                filter("a_x > bigint '5'",
+                                        strictProject(ImmutableMap.of("a_y", expression("msg.y"), "a_x", expression("msg.x")),
                                                 values("msg")))),
                         anyTree(
                                 strictProject(ImmutableMap.of("b_y", expression("msg.y")),
