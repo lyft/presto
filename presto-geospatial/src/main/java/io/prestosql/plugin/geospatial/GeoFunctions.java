@@ -55,12 +55,12 @@ import io.prestosql.spi.function.SqlNullable;
 import io.prestosql.spi.function.SqlType;
 import io.prestosql.spi.type.IntegerType;
 import io.prestosql.spi.type.StandardTypes;
-import java.util.Collections;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.linearref.LengthIndexedLine;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.Iterator;
@@ -605,7 +605,6 @@ public final class GeoFunctions
 
         return new LengthIndexedLine(line).indexOf(point.getCoordinate()) / line.getLength();
     }
-
 
     @SqlNullable
     @Description("Returns a Point interpolated along a LineString at the fraction given.")
