@@ -306,7 +306,7 @@ public class PlanOptimizers
                         .addAll(new CanonicalizeExpressions(metadata, typeAnalyzer).rules())
                         .add(new RemoveTrivialFilters())
                         .build());
-
+        PlanOptimizer predicatePushDown = new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(metadata, typeAnalyzer, true, false));
         builder.add(
                 // Clean up all the sugar in expressions, e.g. AtTimeZone, must be run before all the other optimizers
                 new IterativeOptimizer(
@@ -463,6 +463,7 @@ public class PlanOptimizers
                 inlineProjections,
                 simplifyOptimizer, // Re-run the SimplifyExpressions to simplify any recomposed expressions from other optimizations
                 projectionPushDown,
+                predicatePushDown,
                 new UnaliasSymbolReferences(metadata), // Run again because predicate pushdown and projection pushdown might add more projections
                 new PruneUnreferencedOutputs(), // Make sure to run this before index join. Filtered projections may not have all the columns.
                 new IndexJoinOptimizer(metadata), // Run this after projections and filters have been fully simplified and pushed down
@@ -505,6 +506,7 @@ public class PlanOptimizers
                         estimatedExchangesCostCalculator,
                         ImmutableSet.of(new PushPredicateIntoTableScan(metadata, typeAnalyzer))),
                 projectionPushDown,
+                predicatePushDown,
                 simplifyOptimizer,
                 new PruneUnreferencedOutputs(),
                 new IterativeOptimizer(
@@ -594,6 +596,7 @@ public class PlanOptimizers
                 costCalculator,
                 ImmutableSet.of(new RemoveRedundantTableScanPredicate(metadata))));
         builder.add(projectionPushDown);
+        builder.add(predicatePushDown);
         builder.add(new RemoveUnsupportedDynamicFilters(metadata));
         builder.add(simplifyOptimizer);
         builder.add(inlineProjections);
