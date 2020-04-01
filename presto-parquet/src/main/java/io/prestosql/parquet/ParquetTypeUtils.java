@@ -219,6 +219,11 @@ public final class ParquetTypeUtils
      */
     public static boolean isValueNull(boolean required, int definitionLevel, int maxDefinitionLevel)
     {
+        return !required && (definitionLevel == maxDefinitionLevel - 1);
+    }
+
+    public static boolean isValueNullOrAbsent(boolean required, int definitionLevel, int maxDefinitionLevel)
+    {
         return !required && (definitionLevel <= maxDefinitionLevel - 1);
     }
 

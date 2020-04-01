@@ -75,7 +75,7 @@ public abstract class PrimitiveColumnReader
 
     protected boolean isValueNull()
     {
-        return ParquetTypeUtils.isValueNull(columnDescriptor.isRequired(), definitionLevel, columnDescriptor.getMaxDefinitionLevel());
+        return ParquetTypeUtils.isValueNullOrAbsent(columnDescriptor.isRequired(), definitionLevel, columnDescriptor.getMaxDefinitionLevel());
     }
 
     public static PrimitiveColumnReader createReader(RichColumnDescriptor descriptor)
