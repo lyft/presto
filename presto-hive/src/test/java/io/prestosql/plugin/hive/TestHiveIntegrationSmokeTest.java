@@ -480,6 +480,20 @@ public class TestHiveIntegrationSmokeTest
     }
 
     @Test
+    public void testIsNotNullWithNestedData()
+    {
+        Session admin = Session.builder(getQueryRunner().getDefaultSession())
+                .setIdentity(Identity.forUser("hive")
+                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .build())
+                .build();
+        assertUpdate(admin, "create table nest_test(id int, a row(x varchar, y timestamp, z varchar), b varchar) WITH (format='PARQUET')");
+        assertUpdate(admin, "insert into nest_test values(0, null, '1')", 1);
+        computeActual(admin, "select id from nest_test where a.y is not null");
+        assertUpdate(admin, "DROP TABLE nest_test");
+    }
+
+    @Test
     public void testSchemaOperations()
     {
         Session session = Session.builder(getQueryRunner().getDefaultSession())
