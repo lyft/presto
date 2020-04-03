@@ -132,6 +132,7 @@ import io.prestosql.sql.planner.iterative.rule.PushPredicateIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughExchange;
 import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughUnion;
+import io.prestosql.sql.planner.iterative.rule.PushProjectionThroughUnnest;
 import io.prestosql.sql.planner.iterative.rule.PushRemoteExchangeThroughAssignUniqueId;
 import io.prestosql.sql.planner.iterative.rule.PushSampleIntoTableScan;
 import io.prestosql.sql.planner.iterative.rule.PushTableWriteThroughUnion;
@@ -313,6 +314,7 @@ public class PlanOptimizers
                 new PushProjectionIntoTableScan(metadata, typeAnalyzer),
                 new PushProjectionThroughUnion(),
                 new PushProjectionThroughExchange(),
+                new PushProjectionThroughUnnest(metadata, typeAnalyzer),
                 // Dereference pushdown rules
                 new PushDownDereferenceThroughProject(typeAnalyzer),
                 new PushDownDereferenceThroughUnnest(typeAnalyzer),
