@@ -316,7 +316,12 @@ Property Name                                        Description
 
 ``hive.metastore.glue.iam-role``                     ARN of an IAM role to assume when connecting to the Glue
                                                      Catalog.
+
+``hive.metastore.glue.external-id``                  External ID for the IAM role trust policy when connecting
+                                                     to the Glue Catalog.
 ==================================================== ============================================================
+
+.. _hive-s3:
 
 Amazon S3 Configuration
 -----------------------
@@ -334,14 +339,13 @@ S3 Configuration Properties
 ============================================ =================================================================
 Property Name                                Description
 ============================================ =================================================================
-``hive.s3.use-instance-credentials``         Use the EC2 metadata service to retrieve API credentials,
-                                             defaults to ``true``. This works with IAM roles in EC2.
-
 ``hive.s3.aws-access-key``                   Default AWS access key to use.
 
 ``hive.s3.aws-secret-key``                   Default AWS secret key to use.
 
 ``hive.s3.iam-role``                         IAM role to assume.
+
+``hive.s3.external-id``                      External ID for the IAM role trust policy.
 
 ``hive.s3.endpoint``                         The S3 storage endpoint server. This can be used to
                                              connect to an S3-compatible storage system instead
@@ -402,13 +406,14 @@ Property Name                                Description
                                              or partition. Defaults to ``false``.
 ============================================ =================================================================
 
+.. _hive-s3-credentials:
+
 S3 Credentials
 ^^^^^^^^^^^^^^
 
 If you are running Presto on Amazon EC2, using EMR or another facility,
-it is highly recommended that you set ``hive.s3.use-instance-credentials``
-to ``true`` and use IAM Roles for EC2 to govern access to S3. If this is
-the case, your EC2 instances need to be assigned an IAM Role which
+it is recommended that you use IAM Roles for EC2 to govern access to S3.
+To enable this, your EC2 instances need to be assigned an IAM Role which
 grants appropriate access to the data stored in the S3 bucket(s) you wish
 to use. It is also possible to configure an IAM role with ``hive.s3.iam-role``
 that is used for accessing any S3 bucket. This is much cleaner than
@@ -432,6 +437,104 @@ IAM role-based credentials (using ``STSAssumeRoleSessionCredentialsProvider``),
 or credentials for a specific use case (e.g., bucket/user specific credentials).
 This Hadoop configuration property must be set in the Hadoop configuration
 files referenced by the ``hive.config.resources`` Hive connector property.
+
+.. _hive-s3-security-mapping:
+
+S3 Security Mapping
+^^^^^^^^^^^^^^^^^^^
+
+Presto supports flexible security mapping for S3, allowing for separate
+credentials or IAM roles for specific users or buckets/paths. The IAM role
+for a specific query can be selected from a list of allowed roles by providing
+it as an *extra credential*.
+
+Each security mapping entry may specify one or more match criteria. If multiple
+criteria are specified, all criteria must match. Available match criteria:
+
+* ``user``: Regular expression to match against username. Example: ``alice|bob``
+
+* ``group``: Regular expression to match against any of the groups that the user
+  belongs to. Example: ``finance|sales``
+
+* ``prefix``: S3 URL prefix. It can specify an entire bucket or a path within a
+  bucket. The URL must start with ``s3://`` but will also match ``s3a`` or ``s3n``.
+  Example: ``s3://bucket-name/abc/xyz/``
+
+The security mapping must provide one or more configuration settings:
+
+* ``accessKey`` and ``secretKey``: AWS access key and secret key. This overrides
+  any globally configured credentials, such as access key or instance credentials.
+
+* ``iamRole``: IAM role to use if no user provided role is specified as an
+  extra credential. This overrides any globally configured IAM role. This role
+  is allowed to be specified as an extra credential, although specifying it
+  explicitly has no effect, as it would be used anyway.
+
+* ``allowedIamRoles``: IAM roles that are allowed to be specified as an extra
+  credential. This is useful because a particular AWS account may have permissions
+  to use many roles, but a specific user should only be allowed to use a subset
+  of those roles.
+
+The security mapping entries are processed in the order listed in the configuration
+file. More specific mappings should thus be specified before less specific mappings.
+For example, the mapping list might have URL prefix ``s3://abc/xyz/`` followed by
+``s3://abc/`` to allow different configuration for a specific path within a bucket
+than for other paths within the bucket. You can set default configuration by not
+including any match criteria for the last entry in the list.
+
+Example JSON configuration file:
+
+.. code-block:: json
+
+    {
+      "mappings": [
+        {
+          "prefix": "s3://bucket-name/abc/",
+          "iamRole": "arn:aws:iam::123456789101:role/test_path"
+        },
+        {
+          "user": "bob|charlie",
+          "iamRole": "arn:aws:iam::123456789101:role/test_default",
+          "allowedIamRoles": [
+            "arn:aws:iam::123456789101:role/test1",
+            "arn:aws:iam::123456789101:role/test2",
+            "arn:aws:iam::123456789101:role/test3"
+          ]
+        },
+        {
+          "prefix": "s3://special-bucket/",
+          "accessKey": "AKIAxxxaccess",
+          "secretKey": "iXbXxxxsecret"
+        },
+        {
+          "user": "test.*",
+          "iamRole": "arn:aws:iam::123456789101:role/test_users"
+        },
+        {
+          "group": "finance",
+          "iamRole": "arn:aws:iam::123456789101:role/finance_users"
+        },
+        {
+          "iamRole": "arn:aws:iam::123456789101:role/default"
+        }
+      ]
+    }
+
+======================================================= =================================================================
+Property Name                                           Description
+======================================================= =================================================================
+``hive.s3.security-mapping.config-file``                The JSON configuration file containing security mappings.
+
+``hive.s3.security-mapping.iam-role-credential-name``   The name of the *extra credential* used to provide the IAM role.
+
+``hive.s3.security-mapping.refresh-period``             How often to refresh the security mapping configuration.
+
+``hive.s3.security-mapping.colon-replacement``          The character or characters to be used in place of the colon
+                                                        (``:``) character when specifying an IAM role name as an
+                                                        extra credential. Any instances of this replacement value in the
+                                                        extra credential value will be converted to a colon. Choose a
+                                                        value that is not used in any of your IAM ARNs.
+======================================================= =================================================================
 
 Tuning Properties
 ^^^^^^^^^^^^^^^^^
@@ -587,16 +690,16 @@ Property Name                                Description
 Alluxio Configuration
 ---------------------
 
-Presto can read and write tables stored in data orchestration layer
-`Alluxio <https://www.alluxio.io/?utm_source=prestosql&utm_medium=prestodocs>`_,
-using Alluxio as a distributed block-level read/write caching engine.
+Presto can read and write tables stored in the
+`Alluxio Data Orchestration System <https://www.alluxio.io/?utm_source=prestosql&utm_medium=prestodocs>`_,
+leveraging Alluxio's distributed block-level read/write caching functionality.
 The tables must be created in the Hive metastore with the ``alluxio://`` location prefix
-(see `Running Apache Hive with Alluxio <https://docs.alluxio.io/os/user/2.0/en/compute/Hive.html>`_
+(see `Running Apache Hive with Alluxio <https://docs.alluxio.io/os/user/2.1/en/compute/Hive.html?utm_source=prestosql&utm_medium=prestodocs>`_
 for details and examples).
 Presto queries will then transparently retrieve and cache files
 or objects from a variety of disparate storage systems including HDFS and S3.
 
-Alluxio Client-side Configuration
+Alluxio Client-Side Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 To configure Alluxio client-side properties on Presto, append the Alluxio
@@ -610,7 +713,7 @@ Update the Presto :ref:`presto_jvm_config` file ``etc/jvm.config`` to include th
 
 The advantage of this approach is that all the Alluxio properties are set in
 the single ``alluxio-site.properties`` file. For details, see `Customize Alluxio User Properties
-<https://docs.alluxio.io/os/user/2.0/en/compute/Presto.html#customize-alluxio-user-properties>`_.
+<https://docs.alluxio.io/os/user/2.1/en/compute/Presto.html#customize-alluxio-user-properties?utm_source=prestosql&utm_medium=prestodocs>`_.
 
 Alternatively, add Alluxio configuration properties to the Hadoop configuration
 files (``core-site.xml``, ``hdfs-site.xml``) and configure the Hive connector
@@ -625,6 +728,52 @@ to collocate Presto workers with Alluxio workers. This allows reads and writes
 to bypass the network (*short-circuit*). See `Performance Tuning Tips for Presto with Alluxio
 <https://www.alluxio.io/blog/top-5-performance-tuning-tips-for-running-presto-on-alluxio-1/?utm_source=prestosql&utm_medium=prestodocs>`_
 for more details.
+
+.. _alluxio_catalog_service:
+
+Alluxio Catalog Service
+^^^^^^^^^^^^^^^^^^^^^^^
+
+An alternative way for Presto to interact with Alluxio is via the
+`Alluxio catalog service <https://docs.alluxio.io/os/user/stable/en/core-services/Catalog.html?utm_source=prestosql&utm_medium=prestodocs>`_.
+The primary benefits for using the Alluxio catalog service are simpler
+deployment of Alluxio with Presto, and enabling schema-aware optimizations
+such as transparent caching and transformations. Currently, the catalog service
+supports read-only workloads.
+
+The Alluxio catalog service is a metastore that can cache the information
+from different underlying metastores. It currently supports the Hive metastore
+as an underlying metastore. In order for the Alluxio catalog to manage the metadata
+of other existing metastores, the other metastores must be "attached" to the
+Alluxio catalog. To attach an existing Hive metastore to the Alluxio
+catalog, simply use the
+`Alluxio CLI attachdb command <https://docs.alluxio.io/os/user/stable/en/operation/User-CLI.html?utm_source=prestosql&utm_medium=prestodocs#attachdb>`_.
+The appropriate Hive metastore location and Hive database name need to be
+provided.
+
+.. code-block:: none
+
+    ./bin/alluxio table attachdb hive thrift://HOSTNAME:9083 hive_db_name
+
+Once a metastore is attached, the Alluxio catalog can manage and serve the
+information to Presto. To configure the Hive connector for Alluxio
+catalog service, simply configure the connector to use the Alluxio
+metastore type, and provide the location to the Alluxio cluster.
+For example, your ``etc/catalog/alluxio.properties`` should include
+the following:
+
+.. code-block:: none
+
+    connector.name=hive-hadoop2
+    hive.metastore=alluxio
+    hive.metastore.alluxio.master.address=HOSTNAME:PORT
+
+Replace ``HOSTNAME`` with the Alluxio master hostname, and replace ``PORT``
+with the Alluxio master port.
+An example of an Alluxio master address is ``master-node:19998``.
+Now, Presto queries can take advantage of the Alluxio catalog service, such as
+transparent caching and transparent transformations, without any modifications
+to existing Hive metastore deployments.
 
 Table Statistics
 ----------------

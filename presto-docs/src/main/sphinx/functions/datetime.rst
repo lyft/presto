@@ -38,15 +38,15 @@ The ``AT TIME ZONE`` operator sets the time zone of a timestamp::
 Date and Time Functions
 -----------------------
 
-.. function:: current_date
+.. data:: current_date
 
     Returns the current date as of the start of the query.
 
-.. function:: current_time
+.. data:: current_time
 
     Returns the current time with time zone as of the start of the query.
 
-.. function:: current_timestamp
+.. data:: current_timestamp
 
     Returns the current timestamp with time zone as of the start of the query.
 
@@ -93,11 +93,11 @@ Date and Time Functions
     Returns the UNIX timestamp ``unixtime`` as a timestamp with time zone
     using ``hours`` and ``minutes`` for the time zone offset. ``unixtime`` is the number of seconds since ``1970-01-01 00:00:00``.
 
-.. function:: localtime
+.. data:: localtime
 
     Returns the current time as of the start of the query.
 
-.. function:: localtimestamp
+.. data:: localtimestamp
 
     Returns the current timestamp as of the start of the query.
 
@@ -149,6 +149,8 @@ The above examples use the timestamp ``2001-08-22 03:04:05.321`` as the input.
 .. function:: date_trunc(unit, x) -> [same as input]
 
     Returns ``x`` truncated to ``unit``.
+
+.. _datetime-interval-functions:
 
 Interval Functions
 ------------------

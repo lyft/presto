@@ -41,7 +41,6 @@ import static io.prestosql.spi.session.PropertyMetadata.enumProperty;
 import static io.prestosql.spi.session.PropertyMetadata.integerProperty;
 import static io.prestosql.spi.session.PropertyMetadata.stringProperty;
 import static io.prestosql.spi.type.BigintType.BIGINT;
-import static io.prestosql.spi.type.BooleanType.BOOLEAN;
 import static io.prestosql.spi.type.IntegerType.INTEGER;
 import static io.prestosql.sql.analyzer.FeaturesConfig.JoinReorderingStrategy.ELIMINATE_CROSS_JOINS;
 import static io.prestosql.sql.analyzer.FeaturesConfig.JoinReorderingStrategy.NONE;
@@ -100,7 +99,7 @@ public final class SystemSessionProperties
     public static final String EXCHANGE_COMPRESSION = "exchange_compression";
     public static final String LEGACY_TIMESTAMP = "legacy_timestamp";
     public static final String ENABLE_INTERMEDIATE_AGGREGATIONS = "enable_intermediate_aggregations";
-    public static final String PUSH_AGGREGATION_THROUGH_JOIN = "push_aggregation_through_join";
+    public static final String PUSH_AGGREGATION_THROUGH_OUTER_JOIN = "push_aggregation_through_outer_join";
     public static final String PUSH_PARTIAL_AGGREGATION_THROUGH_JOIN = "push_partial_aggregation_through_join";
     public static final String PARSE_DECIMAL_LITERALS_AS_DOUBLE = "parse_decimal_literals_as_double";
     public static final String FORCE_SINGLE_NODE_OUTPUT = "force_single_node_output";
@@ -356,23 +355,11 @@ public final class SystemSessionProperties
                         "Experimental: Run a fixed number of groups concurrently for eligible JOINs",
                         featuresConfig.getConcurrentLifespansPerTask(),
                         false),
-                new PropertyMetadata<>(
+                booleanProperty(
                         SPILL_ENABLED,
                         "Enable spilling",
-                        BOOLEAN,
-                        Boolean.class,
                         featuresConfig.isSpillEnabled(),
-                        false,
-                        value -> {
-                            boolean spillEnabled = (Boolean) value;
-                            if (spillEnabled && featuresConfig.getSpillerSpillPaths().isEmpty()) {
-                                throw new PrestoException(
-                                        INVALID_SESSION_PROPERTY,
-                                        format("%s cannot be set to true; no spill paths configured", SPILL_ENABLED));
-                            }
-                            return spillEnabled;
-                        },
-                        value -> value),
+                        false),
                 booleanProperty(
                         SPILL_ORDER_BY,
                         "Spill in OrderBy if spill_enabled is also set",
@@ -424,14 +411,14 @@ public final class SystemSessionProperties
                         featuresConfig.isEnableIntermediateAggregations(),
                         false),
                 booleanProperty(
-                        PUSH_AGGREGATION_THROUGH_JOIN,
+                        PUSH_AGGREGATION_THROUGH_OUTER_JOIN,
                         "Allow pushing aggregations below joins",
-                        featuresConfig.isPushAggregationThroughJoin(),
+                        featuresConfig.isPushAggregationThroughOuterJoin(),
                         false),
                 booleanProperty(
                         PUSH_PARTIAL_AGGREGATION_THROUGH_JOIN,
                         "Push partial aggregations below joins",
-                        false,
+                        featuresConfig.isPushPartialAggregationThoughJoin(),
                         false),
                 booleanProperty(
                         PARSE_DECIMAL_LITERALS_AS_DOUBLE,
@@ -835,12 +822,12 @@ public final class SystemSessionProperties
         return session.getSystemProperty(ENABLE_INTERMEDIATE_AGGREGATIONS, Boolean.class);
     }
 
-    public static boolean shouldPushAggregationThroughJoin(Session session)
+    public static boolean isPushAggregationThroughOuterJoin(Session session)
     {
-        return session.getSystemProperty(PUSH_AGGREGATION_THROUGH_JOIN, Boolean.class);
+        return session.getSystemProperty(PUSH_AGGREGATION_THROUGH_OUTER_JOIN, Boolean.class);
     }
 
-    public static boolean isPushAggregationThroughJoin(Session session)
+    public static boolean isPushPartialAggregationThroughJoin(Session session)
     {
         return session.getSystemProperty(PUSH_PARTIAL_AGGREGATION_THROUGH_JOIN, Boolean.class);
     }

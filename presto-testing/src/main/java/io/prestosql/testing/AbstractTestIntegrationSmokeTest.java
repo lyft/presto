@@ -19,13 +19,22 @@ import org.testng.annotations.Test;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.testing.QueryAssertions.assertContains;
 import static io.prestosql.testing.assertions.Assert.assertEquals;
+import static java.lang.String.join;
+import static java.util.Collections.nCopies;
+import static org.assertj.core.api.Assertions.assertThat;
 
 public abstract class AbstractTestIntegrationSmokeTest
         extends AbstractTestQueryFramework
 {
-    protected boolean isParameterizedVarcharSupported()
+    /**
+     * Ensure the tests are run with {@link DistributedQueryRunner}. E.g. {@link LocalQueryRunner} takes some
+     * shortcuts, not exercising certain aspects.
+     */
+    @Test
+    public void ensureDistributedQueryRunner()
     {
-        return true;
+        assertThat(getQueryRunner().getNodeCount()).as("query runner node count")
+                .isGreaterThanOrEqualTo(3);
     }
 
     @Test
@@ -93,6 +102,13 @@ public abstract class AbstractTestIntegrationSmokeTest
     }
 
     @Test
+    public void testConcurrentScans()
+    {
+        String unionMultipleTimes = join(" UNION ALL ", nCopies(25, "SELECT * FROM orders"));
+        assertQuery("SELECT sum(if(rand() >= 0, orderkey)) FROM (" + unionMultipleTimes + ")", "VALUES 11246812500");
+    }
+
+    @Test
     public void testSelectAll()
     {
         assertQuery("SELECT * FROM orders");
@@ -135,6 +151,24 @@ public abstract class AbstractTestIntegrationSmokeTest
                 .build();
         MaterializedResult actualColumns = computeActual("DESCRIBE orders");
         assertEquals(actualColumns, expectedColumns);
+    }
+
+    @Test
+    public void testShowCreateTable()
+    {
+        assertThat((String) computeActual("SHOW CREATE TABLE orders").getOnlyValue())
+                // If the connector reports additional column properties, the expected value needs to be adjusted in the test subclass
+                .matches("CREATE TABLE \\w+\\.\\w+\\.orders \\Q(\n" +
+                        "   orderkey bigint,\n" +
+                        "   custkey bigint,\n" +
+                        "   orderstatus varchar(1),\n" +
+                        "   totalprice double,\n" +
+                        "   orderdate date,\n" +
+                        "   orderpriority varchar(15),\n" +
+                        "   clerk varchar(15),\n" +
+                        "   shippriority integer,\n" +
+                        "   comment varchar(79)\n" +
+                        ")");
     }
 
     @Test

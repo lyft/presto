@@ -22,8 +22,8 @@ import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.auth.BasicSessionCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.auth.InstanceProfileCredentialsProvider;
 import com.amazonaws.auth.STSAssumeRoleSessionCredentialsProvider;
 import com.amazonaws.auth.Signer;
 import com.amazonaws.auth.SignerFactory;
@@ -59,6 +59,7 @@ import com.amazonaws.services.s3.transfer.TransferManager;
 import com.amazonaws.services.s3.transfer.TransferManagerBuilder;
 import com.amazonaws.services.s3.transfer.Upload;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Splitter;
 import com.google.common.collect.AbstractSequentialIterator;
 import com.google.common.collect.Iterators;
 import com.google.common.io.Closer;
@@ -143,7 +144,6 @@ public class PrestoS3FileSystem
     public static final String S3_KMS_KEY_ID = "presto.s3.kms-key-id";
     public static final String S3_ENCRYPTION_MATERIALS_PROVIDER = "presto.s3.encryption-materials-provider";
     public static final String S3_PIN_CLIENT_TO_CURRENT_REGION = "presto.s3.pin-client-to-current-region";
-    public static final String S3_USE_INSTANCE_CREDENTIALS = "presto.s3.use-instance-credentials";
     public static final String S3_MULTIPART_MIN_PART_SIZE = "presto.s3.multipart.min-part-size";
     public static final String S3_MULTIPART_MIN_FILE_SIZE = "presto.s3.multipart.min-file-size";
     public static final String S3_STAGING_DIRECTORY = "presto.s3.staging-directory";
@@ -161,7 +161,9 @@ public class PrestoS3FileSystem
     public static final String S3_ENDPOINT = "presto.s3.endpoint";
     public static final String S3_SECRET_KEY = "presto.s3.secret-key";
     public static final String S3_ACCESS_KEY = "presto.s3.access-key";
+    public static final String S3_SESSION_TOKEN = "presto.s3.session-token";
     public static final String S3_IAM_ROLE = "presto.s3.iam-role";
+    public static final String S3_EXTERNAL_ID = "presto.s3.external-id";
     public static final String S3_ACL_TYPE = "presto.s3.upload-acl-type";
     public static final String S3_SKIP_GLACIER_OBJECTS = "presto.s3.skip-glacier-objects";
     public static final String S3_REQUESTER_PAYS_ENABLED = "presto.s3.requester-pays.enabled";
@@ -188,8 +190,8 @@ public class PrestoS3FileSystem
     private int maxAttempts;
     private Duration maxBackoffTime;
     private Duration maxRetryTime;
-    private boolean useInstanceCredentials;
     private String iamRole;
+    private String externalId;
     private boolean pinS3ClientToCurrentRegion;
     private boolean sseEnabled;
     private PrestoS3SseType sseType;
@@ -220,7 +222,7 @@ public class PrestoS3FileSystem
         this.workingDirectory = new Path(PATH_SEPARATOR).makeQualified(this.uri, new Path(PATH_SEPARATOR));
 
         HiveS3Config defaults = new HiveS3Config();
-        this.stagingDirectory = new File(conf.get(S3_STAGING_DIRECTORY, defaults.getS3StagingDirectory().toString()));
+        this.stagingDirectory = new File(conf.get(S3_STAGING_DIRECTORY, defaults.getS3StagingDirectory().getPath()));
         this.maxAttempts = conf.getInt(S3_MAX_CLIENT_RETRIES, defaults.getS3MaxClientRetries()) + 1;
         this.maxBackoffTime = Duration.valueOf(conf.get(S3_MAX_BACKOFF_TIME, defaults.getS3MaxBackoffTime().toString()));
         this.maxRetryTime = Duration.valueOf(conf.get(S3_MAX_RETRY_TIME, defaults.getS3MaxRetryTime().toString()));
@@ -232,10 +234,8 @@ public class PrestoS3FileSystem
         this.multiPartUploadMinFileSize = conf.getLong(S3_MULTIPART_MIN_FILE_SIZE, defaults.getS3MultipartMinFileSize().toBytes());
         this.multiPartUploadMinPartSize = conf.getLong(S3_MULTIPART_MIN_PART_SIZE, defaults.getS3MultipartMinPartSize().toBytes());
         this.isPathStyleAccess = conf.getBoolean(S3_PATH_STYLE_ACCESS, defaults.isS3PathStyleAccess());
-        this.useInstanceCredentials = conf.getBoolean(S3_USE_INSTANCE_CREDENTIALS, defaults.isS3UseInstanceCredentials());
         this.iamRole = conf.get(S3_IAM_ROLE, defaults.getS3IamRole());
-        verify(!(useInstanceCredentials && this.iamRole != null),
-                "Invalid configuration: either use instance credentials or specify an iam role");
+        this.externalId = conf.get(S3_EXTERNAL_ID, defaults.getS3ExternalId());
         this.pinS3ClientToCurrentRegion = conf.getBoolean(S3_PIN_CLIENT_TO_CURRENT_REGION, defaults.isPinS3ClientToCurrentRegion());
         verify(!pinS3ClientToCurrentRegion || conf.get(S3_ENDPOINT) == null,
                 "Invalid configuration: either endpoint can be set or S3 client can be pinned to the current region");
@@ -795,25 +795,31 @@ public class PrestoS3FileSystem
 
     private AWSCredentialsProvider createAwsCredentialsProvider(URI uri, Configuration conf)
     {
-        Optional<AWSCredentials> credentials = getAwsCredentials(uri, conf);
+        // credentials embedded in the URI take precedence and are used alone
+        Optional<AWSCredentials> credentials = getEmbeddedAwsCredentials(uri);
         if (credentials.isPresent()) {
             return new AWSStaticCredentialsProvider(credentials.get());
         }
 
-        if (useInstanceCredentials) {
-            return InstanceProfileCredentialsProvider.getInstance();
-        }
-
-        if (iamRole != null) {
-            return new STSAssumeRoleSessionCredentialsProvider.Builder(this.iamRole, "presto-session").build();
-        }
-
+        // a custom credential provider is also used alone
         String providerClass = conf.get(S3_CREDENTIALS_PROVIDER);
         if (!isNullOrEmpty(providerClass)) {
             return getCustomAWSCredentialsProvider(uri, conf, providerClass);
         }
 
-        return DefaultAWSCredentialsProviderChain.getInstance();
+        // use configured credentials or default chain with optional role
+        AWSCredentialsProvider provider = getAwsCredentials(conf)
+                .map(value -> (AWSCredentialsProvider) new AWSStaticCredentialsProvider(value))
+                .orElseGet(DefaultAWSCredentialsProviderChain::getInstance);
+
+        if (iamRole != null) {
+            provider = new STSAssumeRoleSessionCredentialsProvider.Builder(iamRole, "presto-session")
+                    .withExternalId(externalId)
+                    .withLongLivedCredentialsProvider(provider)
+                    .build();
+        }
+
+        return provider;
     }
 
     private static AWSCredentialsProvider getCustomAWSCredentialsProvider(URI uri, Configuration conf, String providerClass)
@@ -830,26 +836,34 @@ public class PrestoS3FileSystem
         }
     }
 
-    private static Optional<AWSCredentials> getAwsCredentials(URI uri, Configuration conf)
+    private static Optional<AWSCredentials> getEmbeddedAwsCredentials(URI uri)
+    {
+        String userInfo = nullToEmpty(uri.getUserInfo());
+        List<String> parts = Splitter.on(':').limit(2).splitToList(userInfo);
+        if (parts.size() == 2) {
+            String accessKey = parts.get(0);
+            String secretKey = parts.get(1);
+            if (!accessKey.isEmpty() && !secretKey.isEmpty()) {
+                return Optional.of(new BasicAWSCredentials(accessKey, secretKey));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<AWSCredentials> getAwsCredentials(Configuration conf)
     {
         String accessKey = conf.get(S3_ACCESS_KEY);
         String secretKey = conf.get(S3_SECRET_KEY);
 
-        String userInfo = uri.getUserInfo();
-        if (userInfo != null) {
-            int index = userInfo.indexOf(':');
-            if (index < 0) {
-                accessKey = userInfo;
-            }
-            else {
-                accessKey = userInfo.substring(0, index);
-                secretKey = userInfo.substring(index + 1);
-            }
-        }
-
         if (isNullOrEmpty(accessKey) || isNullOrEmpty(secretKey)) {
             return Optional.empty();
         }
+
+        String sessionToken = conf.get(S3_SESSION_TOKEN);
+        if (!isNullOrEmpty(sessionToken)) {
+            return Optional.of(new BasicSessionCredentials(accessKey, secretKey, sessionToken));
+        }
+
         return Optional.of(new BasicAWSCredentials(accessKey, secretKey));
     }
 

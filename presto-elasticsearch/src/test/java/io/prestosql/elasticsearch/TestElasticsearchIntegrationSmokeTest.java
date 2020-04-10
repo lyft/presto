@@ -28,6 +28,7 @@ import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.intellij.lang.annotations.Language;
+import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
@@ -41,6 +42,7 @@ import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.testing.MaterializedResult.resultBuilder;
 import static io.prestosql.testing.assertions.Assert.assertEquals;
 import static java.lang.String.format;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class TestElasticsearchIntegrationSmokeTest
         extends AbstractTestIntegrationSmokeTest
@@ -93,6 +95,15 @@ public class TestElasticsearchIntegrationSmokeTest
                 .build();
         MaterializedResult actualColumns = computeActual("DESCRIBE orders");
         assertEquals(actualColumns, expectedColumns);
+    }
+
+    @Override
+    public void testShowCreateTable()
+    {
+        // TODO (https://github.com/prestosql/presto/issues/3385) Fix SHOW CREATE TABLE
+        assertThatThrownBy(super::testShowCreateTable)
+                .hasMessage("No PropertyMetadata for property: original-name");
+        throw new SkipException("Fix SHOW CREATE TABLE");
     }
 
     @Test
@@ -324,7 +335,9 @@ public class TestElasticsearchIntegrationSmokeTest
                 "        \"keyword_column\":   { \"type\": \"keyword\" }," +
                 "        \"text_column\":      { \"type\": \"text\" }," +
                 "        \"binary_column\":    { \"type\": \"binary\" }," +
-                "        \"timestamp_column\": { \"type\": \"date\" }" +
+                "        \"timestamp_column\": { \"type\": \"date\" }," +
+                "        \"ipv4_column\": { \"type\": \"ip\" }," +
+                "        \"ipv6_column\": { \"type\": \"ip\" }" +
                 "      }" +
                 "    }" +
                 "  }" +
@@ -342,6 +355,8 @@ public class TestElasticsearchIntegrationSmokeTest
                 .put("text_column", "some text")
                 .put("binary_column", new byte[] {(byte) 0xCA, (byte) 0xFE})
                 .put("timestamp_column", 0)
+                .put("ipv4_column", "1.2.3.4")
+                .put("ipv6_column", "2001:db8:0:0:1:0:0:1")
                 .build());
 
         MaterializedResult rows = computeActual("" +
@@ -354,11 +369,14 @@ public class TestElasticsearchIntegrationSmokeTest
                 "keyword_column, " +
                 "text_column, " +
                 "binary_column, " +
-                "timestamp_column " +
+                "timestamp_column, " +
+                "ipv4_column, " +
+                "ipv6_column " +
                 "FROM types");
 
         MaterializedResult expected = resultBuilder(getSession(), rows.getTypes())
-                .row(true, 1.0f, 1.0d, 1, 1L, "cool", "some text", new byte[] {(byte) 0xCA, (byte) 0xFE}, LocalDateTime.of(1970, 1, 1, 0, 0))
+                .row(true, 1.0f, 1.0d, 1, 1L, "cool", "some text", new byte[] {(byte) 0xCA, (byte) 0xFE},
+                        LocalDateTime.of(1970, 1, 1, 0, 0), "1.2.3.4", "2001:db8::1:0:0:1")
                 .build();
 
         assertEquals(rows.getMaterializedRows(), expected.getMaterializedRows());
@@ -383,7 +401,9 @@ public class TestElasticsearchIntegrationSmokeTest
                 "        \"keyword_column\":   { \"type\": \"keyword\" }," +
                 "        \"text_column\":      { \"type\": \"text\" }," +
                 "        \"binary_column\":    { \"type\": \"binary\" }," +
-                "        \"timestamp_column\": { \"type\": \"date\" }" +
+                "        \"timestamp_column\": { \"type\": \"date\" }," +
+                "        \"ipv4_column\": { \"type\": \"ip\" }," +
+                "        \"ipv6_column\": { \"type\": \"ip\" }" +
                 "      }" +
                 "    }" +
                 "  }" +
@@ -403,6 +423,8 @@ public class TestElasticsearchIntegrationSmokeTest
                 .put("text_column", "some text")
                 .put("binary_column", new byte[] {(byte) 0xCA, (byte) 0xFE})
                 .put("timestamp_column", 1569888000000L)
+                .put("ipv4_column", "1.2.3.4")
+                .put("ipv6_column", "2001:db8:0:0:1:0:0:1")
                 .build());
 
         // _score column
@@ -477,6 +499,10 @@ public class TestElasticsearchIntegrationSmokeTest
         assertQuery("SELECT count(*) FROM filter_pushdown WHERE timestamp_column = TIMESTAMP '2019-10-02 00:00:00'", "VALUES 0");
         assertQuery("SELECT count(*) FROM filter_pushdown WHERE timestamp_column > TIMESTAMP '2001-01-01 00:00:00'", "VALUES 1");
         assertQuery("SELECT count(*) FROM filter_pushdown WHERE timestamp_column < TIMESTAMP '2030-01-01 00:00:00'", "VALUES 1");
+
+        // ipaddress
+        assertQuery("SELECT count(*) FROM filter_pushdown WHERE ipv4_column = IPADDRESS '1.2.3.4'", "VALUES 1");
+        assertQuery("SELECT count(*) FROM filter_pushdown WHERE ipv6_column = IPADDRESS '2001:db8::1:0:0:1'", "VALUES 1");
     }
 
     @Test
@@ -514,7 +540,9 @@ public class TestElasticsearchIntegrationSmokeTest
                 "            \"keyword_column\":   { \"type\": \"keyword\" }," +
                 "            \"text_column\":      { \"type\": \"text\" }," +
                 "            \"binary_column\":    { \"type\": \"binary\" }," +
-                "            \"timestamp_column\": { \"type\": \"date\" }" +
+                "            \"timestamp_column\": { \"type\": \"date\" }," +
+                "            \"ipv4_column\": { \"type\": \"ip\" }," +
+                "            \"ipv6_column\": { \"type\": \"ip\" }" +
                 "          }" +
                 "        }" +
                 "      }" +
@@ -536,6 +564,8 @@ public class TestElasticsearchIntegrationSmokeTest
                         .put("text_column", "some text")
                         .put("binary_column", new byte[] {(byte) 0xCA, (byte) 0xFE})
                         .put("timestamp_column", 0)
+                        .put("ipv4_column", "1.2.3.4")
+                        .put("ipv6_column", "2001:db8:0:0:1:0:0:1")
                         .build()));
 
         MaterializedResult rows = computeActual("" +
@@ -548,11 +578,14 @@ public class TestElasticsearchIntegrationSmokeTest
                 "field.keyword_column, " +
                 "field.text_column, " +
                 "field.binary_column, " +
-                "field.timestamp_column " +
+                "field.timestamp_column, " +
+                "field.ipv4_column, " +
+                "field.ipv6_column " +
                 "FROM types_nested");
 
         MaterializedResult expected = resultBuilder(getSession(), rows.getTypes())
-                .row(true, 1.0f, 1.0d, 1, 1L, "cool", "some text", new byte[] {(byte) 0xCA, (byte) 0xFE}, LocalDateTime.of(1970, 1, 1, 0, 0))
+                .row(true, 1.0f, 1.0d, 1, 1L, "cool", "some text", new byte[] {(byte) 0xCA, (byte) 0xFE},
+                        LocalDateTime.of(1970, 1, 1, 0, 0), "1.2.3.4", "2001:db8::1:0:0:1")
                 .build();
 
         assertEquals(rows.getMaterializedRows(), expected.getMaterializedRows());
@@ -580,7 +613,9 @@ public class TestElasticsearchIntegrationSmokeTest
                 "            \"keyword_column\":   { \"type\": \"keyword\" }," +
                 "            \"text_column\":      { \"type\": \"text\" }," +
                 "            \"binary_column\":    { \"type\": \"binary\" }," +
-                "            \"timestamp_column\": { \"type\": \"date\" }" +
+                "            \"timestamp_column\": { \"type\": \"date\" }," +
+                "            \"ipv4_column\": { \"type\": \"ip\" }," +
+                "            \"ipv6_column\": { \"type\": \"ip\" }" +
                 "          }" +
                 "        }" +
                 "      }" +
@@ -602,6 +637,8 @@ public class TestElasticsearchIntegrationSmokeTest
                         .put("text_column", "some text")
                         .put("binary_column", new byte[] {(byte) 0xCA, (byte) 0xFE})
                         .put("timestamp_column", 0)
+                        .put("ipv4_column", "1.2.3.4")
+                        .put("ipv6_column", "2001:db8:0:0:1:0:0:1")
                         .build()));
 
         MaterializedResult rows = computeActual("" +
@@ -614,12 +651,14 @@ public class TestElasticsearchIntegrationSmokeTest
                 "nested_field.keyword_column, " +
                 "nested_field.text_column, " +
                 "nested_field.binary_column, " +
-                "nested_field.timestamp_column " +
+                "nested_field.timestamp_column, " +
+                "nested_field.ipv4_column, " +
+                "nested_field.ipv6_column " +
                 "FROM nested_type_nested");
 
         MaterializedResult expected = resultBuilder(getSession(), rows.getTypes())
                 .row(true, 1.0f, 1.0d, 1, 1L, "cool", "some text", new byte[] {(byte) 0xCA, (byte) 0xFE},
-                        LocalDateTime.of(1970, 1, 1, 0, 0))
+                        LocalDateTime.of(1970, 1, 1, 0, 0), "1.2.3.4", "2001:db8::1:0:0:1")
                 .build();
 
         assertEquals(rows.getMaterializedRows(), expected.getMaterializedRows());
@@ -654,6 +693,34 @@ public class TestElasticsearchIntegrationSmokeTest
         assertQuery(
                 "SELECT name, age FROM mixed_case WHERE name = 'john'",
                 "VALUES ('john', 32)");
+    }
+
+    @Test
+    public void testNumericKeyword()
+            throws IOException
+    {
+        String indexName = "numeric_keyword";
+        @Language("JSON") String mapping = "" +
+                "{" +
+                "  \"mappings\": {" +
+                "    \"doc\": {" +
+                "      \"properties\": {" +
+                "        \"numeric_keyword\":   { \"type\": \"keyword\" }" +
+                "      }" +
+                "    }" +
+                "  }" +
+                "}";
+        createIndex(indexName, mapping);
+        index(indexName, ImmutableMap.<String, Object>builder()
+                .put("numeric_keyword", 20)
+                .build());
+
+        assertQuery(
+                "SELECT numeric_keyword FROM numeric_keyword",
+                "VALUES 20");
+        assertQuery(
+                "SELECT numeric_keyword FROM numeric_keyword where numeric_keyword = '20'",
+                "VALUES 20");
     }
 
     @Test

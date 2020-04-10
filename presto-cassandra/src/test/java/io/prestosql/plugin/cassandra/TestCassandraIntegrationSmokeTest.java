@@ -14,6 +14,7 @@
 package io.prestosql.plugin.cassandra;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.Ints;
 import io.airlift.units.Duration;
 import io.prestosql.Session;
 import io.prestosql.spi.type.Type;
@@ -32,7 +33,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static com.datastax.driver.core.utils.Bytes.toRawHexString;
-import static com.google.common.primitives.Ints.toByteArray;
 import static io.prestosql.plugin.cassandra.CassandraQueryRunner.createCassandraQueryRunner;
 import static io.prestosql.plugin.cassandra.CassandraQueryRunner.createCassandraSession;
 import static io.prestosql.plugin.cassandra.CassandraTestingUtils.TABLE_ALL_TYPES;
@@ -61,6 +61,7 @@ import static io.prestosql.tpch.TpchTable.ORDERS;
 import static java.lang.String.format;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.stream.Collectors.toList;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.assertEquals;
 
 public class TestCassandraIntegrationSmokeTest
@@ -111,6 +112,23 @@ public class TestCassandraIntegrationSmokeTest
         Assert.assertEquals(actualColumns, expectedColumns);
     }
 
+    @Override
+    public void testShowCreateTable()
+    {
+        assertThat(computeActual("SHOW CREATE TABLE orders").getOnlyValue())
+                .isEqualTo("CREATE TABLE cassandra.tpch.orders (\n" +
+                        "   orderkey bigint,\n" +
+                        "   custkey bigint,\n" +
+                        "   orderstatus varchar,\n" +
+                        "   totalprice double,\n" +
+                        "   orderdate varchar,\n" +
+                        "   orderpriority varchar,\n" +
+                        "   clerk varchar,\n" +
+                        "   shippriority integer,\n" +
+                        "   comment varchar\n" +
+                        ")");
+    }
+
     @Test
     public void testPartitionKeyPredicate()
     {
@@ -120,7 +138,7 @@ public class TestCassandraIntegrationSmokeTest
                 " AND typeuuid = '00000000-0000-0000-0000-000000000007'" +
                 " AND typeinteger = 7" +
                 " AND typelong = 1007" +
-                " AND typebytes = from_hex('" + toRawHexString(ByteBuffer.wrap(toByteArray(7))) + "')" +
+                " AND typebytes = from_hex('" + toRawHexString(ByteBuffer.wrap(Ints.toByteArray(7))) + "')" +
                 " AND typetimestamp = TIMESTAMP '1969-12-31 23:04:05'" +
                 " AND typeansi = 'ansi 7'" +
                 " AND typeboolean = false" +
@@ -481,15 +499,15 @@ public class TestCassandraIntegrationSmokeTest
 
         session.execute("INSERT INTO keyspace_test_nested_collection.table_set (column_5, nested_collection) VALUES (1, {{1, 2, 3}})");
         assertEquals(execute("SELECT nested_collection FROM cassandra.keyspace_test_nested_collection.table_set").getMaterializedRows().get(0),
-                     new MaterializedRow(DEFAULT_PRECISION, "[[1,2,3]]"));
+                new MaterializedRow(DEFAULT_PRECISION, "[[1,2,3]]"));
 
         session.execute("INSERT INTO keyspace_test_nested_collection.table_list (column_5, nested_collection) VALUES (1, [[4, 5, 6]])");
         assertEquals(execute("SELECT nested_collection FROM cassandra.keyspace_test_nested_collection.table_list").getMaterializedRows().get(0),
-                     new MaterializedRow(DEFAULT_PRECISION, "[[4,5,6]]"));
+                new MaterializedRow(DEFAULT_PRECISION, "[[4,5,6]]"));
 
         session.execute("INSERT INTO keyspace_test_nested_collection.table_map (column_5, nested_collection) VALUES (1, {7:{8:9}})");
         assertEquals(execute("SELECT nested_collection FROM cassandra.keyspace_test_nested_collection.table_map").getMaterializedRows().get(0),
-                     new MaterializedRow(DEFAULT_PRECISION, "{7:{8:9}}"));
+                new MaterializedRow(DEFAULT_PRECISION, "{7:{8:9}}"));
 
         session.execute("DROP KEYSPACE keyspace_test_nested_collection");
     }
@@ -658,7 +676,7 @@ public class TestCassandraIntegrationSmokeTest
                     format("00000000-0000-0000-0000-%012d", rowNumber),
                     rowNumber,
                     rowNumber + 1000L,
-                    ByteBuffer.wrap(toByteArray(rowNumber)),
+                    ByteBuffer.wrap(Ints.toByteArray(rowNumber)),
                     TIMESTAMP_LOCAL,
                     "ansi " + rowNumber,
                     rowNumber % 2 == 0,
