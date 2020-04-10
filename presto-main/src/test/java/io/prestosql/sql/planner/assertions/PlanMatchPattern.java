@@ -479,6 +479,11 @@ public final class PlanMatchPattern
         return node(UnnestNode.class, source);
     }
 
+    public static PlanMatchPattern unnest(List<String> replicateSymbols, Map<String, List<String>> unnestSymbols, Optional<String> ordinalitySymbol, PlanMatchPattern source)
+    {
+        return unnest(source).with(new UnnestMatcher(replicateSymbols, unnestSymbols, ordinalitySymbol));
+    }
+
     public static PlanMatchPattern exchange(PlanMatchPattern... sources)
     {
         return node(ExchangeNode.class, sources);
