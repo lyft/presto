@@ -217,9 +217,9 @@ public class Assignments
             return putAll(assignments.getMap());
         }
 
-        public Builder putAll(Map<Symbol, ? extends Expression> assignments)
+        public Builder putAll(Map<Symbol, Expression> assignments)
         {
-            for (Entry<Symbol, ? extends Expression> assignment : assignments.entrySet()) {
+            for (Entry<Symbol, Expression> assignment : assignments.entrySet()) {
                 put(assignment.getKey(), assignment.getValue());
             }
             return this;
