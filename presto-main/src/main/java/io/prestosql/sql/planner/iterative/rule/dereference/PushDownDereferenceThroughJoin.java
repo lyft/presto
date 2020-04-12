@@ -119,10 +119,8 @@ public class PushDownDereferenceThroughJoin
                 leftNode,
                 rightNode,
                 joinNode.getCriteria(),
-                joinNode.getOutputSymbols(),
-                ImmutableList.<Symbol>builder()
-                    .addAll(pushdownDereferences.values())
-                    .build(),
+                leftNode.getOutputSymbols(),
+                rightNode.getOutputSymbols(),
                 joinNode.getFilter().map(expression -> ExpressionTreeRewriter.rewriteWith(new PushDownDereferencesUtil.DereferenceReplacer(pushdownDereferences), expression)),
                 joinNode.getLeftHashSymbol(),
                 joinNode.getRightHashSymbol(),
