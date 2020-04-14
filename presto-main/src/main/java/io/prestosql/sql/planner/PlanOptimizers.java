@@ -527,7 +527,6 @@ public class PlanOptimizers
                         ImmutableSet.of(new PushPredicateIntoTableScan(metadata, typeAnalyzer))),
                 projectionPushDown,
                 new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(metadata, typeAnalyzer, true, false)),
-                new RemoveUnsupportedDynamicFilters(metadata),
                 simplifyOptimizer,
                 new PruneUnreferencedOutputs(metadata, typeAnalyzer),
                 new IterativeOptimizer(
