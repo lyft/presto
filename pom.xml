@@ -55,7 +55,6 @@
         <dep.tempto.version>179</dep.tempto.version>
         <dep.gcs.version>2.0.0</dep.gcs.version>
         <dep.errorprone.version>2.3.4</dep.errorprone.version>
-        <rubix.version>0.3.12</rubix.version>
 
         <!--
           America/Bahia_Banderas has:
@@ -772,6 +771,12 @@
             </dependency>
 
             <dependency>
+                <groupId>com.qubole.rubix</groupId>
+                <artifactId>rubix-presto-shaded</artifactId>
+                <version>0.3.16</version>
+            </dependency>
+
+            <dependency>
                 <groupId>org.jdbi</groupId>
                 <artifactId>jdbi</artifactId>
                 <version>2.78</version>
@@ -1211,12 +1216,6 @@
                 <version>1.13.0</version>
                 <type>pom</type>
                 <scope>import</scope>
-            </dependency>
-
-            <dependency>
-                <groupId>com.qubole.rubix</groupId>
-                <artifactId>rubix-presto-shaded</artifactId>
-                <version>${rubix.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
