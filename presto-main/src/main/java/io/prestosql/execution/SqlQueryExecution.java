@@ -45,6 +45,10 @@ import io.prestosql.server.DynamicFilterService.StageDynamicFilters;
 import io.prestosql.server.protocol.Slug;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.QueryId;
+import io.prestosql.spi.type.ArrayType;
+import io.prestosql.spi.type.MapType;
+import io.prestosql.spi.type.RowType;
+import io.prestosql.spi.type.Type;
 import io.prestosql.split.SplitManager;
 import io.prestosql.split.SplitSource;
 import io.prestosql.sql.analyzer.Analysis;
@@ -62,8 +66,11 @@ import io.prestosql.sql.planner.PlanNodeIdAllocator;
 import io.prestosql.sql.planner.PlanOptimizers;
 import io.prestosql.sql.planner.StageExecutionPlan;
 import io.prestosql.sql.planner.SubPlan;
+import io.prestosql.sql.planner.Symbol;
 import io.prestosql.sql.planner.TypeAnalyzer;
+import io.prestosql.sql.planner.TypeProvider;
 import io.prestosql.sql.planner.optimizations.PlanOptimizer;
+import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.tree.Explain;
 import io.prestosql.sql.tree.Query;
 import io.prestosql.sql.tree.Statement;
@@ -84,6 +91,7 @@ import java.util.function.Consumer;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Throwables.throwIfInstanceOf;
 import static io.airlift.units.DataSize.succinctBytes;
+import static io.prestosql.SystemSessionProperties.getQueryMaxColumnsOutput;
 import static io.prestosql.SystemSessionProperties.isEnableDynamicFiltering;
 import static io.prestosql.execution.buffer.OutputBuffers.BROADCAST_PARTITION_ID;
 import static io.prestosql.execution.buffer.OutputBuffers.createInitialEmptyOutputBuffers;
@@ -423,6 +431,7 @@ public class SqlQueryExecution
         PlanNodeIdAllocator idAllocator = new PlanNodeIdAllocator();
         LogicalPlanner logicalPlanner = new LogicalPlanner(stateMachine.getSession(), planOptimizers, idAllocator, metadata, new TypeAnalyzer(sqlParser, metadata), statsCalculator, costCalculator, stateMachine.getWarningCollector());
         Plan plan = logicalPlanner.plan(analysis);
+        sanityCheckColumnsOutput(plan);
         queryPlan.set(plan);
 
         // extract inputs
@@ -436,6 +445,44 @@ public class SqlQueryExecution
 
         boolean explainAnalyze = analysis.getStatement() instanceof Explain && ((Explain) analysis.getStatement()).isAnalyze();
         return new PlanRoot(fragmentedPlan, !explainAnalyze);
+    }
+
+    private void sanityCheckColumnsOutput(Plan plan) {
+        long count = countOutputElements(plan);
+        if (count > getQueryMaxColumnsOutput(stateMachine.getSession())) {
+            throw new PrestoException(NOT_SUPPORTED, "Too many columns output");
+        }
+    }
+
+    private long countOutputElements(Plan plan)
+    {
+        PlanNode root = plan.getRoot();
+        TypeProvider typeProvider = plan.getTypes();
+        List<Symbol> outputSymbols = root.getOutputSymbols();
+        long count = 0;
+        for (Symbol outputSymbol : outputSymbols) {
+            Type type = typeProvider.get(outputSymbol);
+            count += countFields(type);
+        }
+        return count;
+    }
+
+    private long countFields (Type type) {
+        if (type instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) type;
+            return countFields(arrayType.getElementType());
+        } else if (type instanceof RowType) {
+            long count = 0;
+            RowType rowType = (RowType) type;
+            for (RowType.Field field : rowType.getFields()) {
+                count += countFields(field.getType());
+            }
+            return count;
+        } else if (type instanceof MapType) {
+            MapType mapType = (MapType) type;
+            return countFields(mapType.getKeyType()) + countFields(mapType.getValueType());
+        }
+        return 1;
     }
 
     private void planDistribution(PlanRoot plan)

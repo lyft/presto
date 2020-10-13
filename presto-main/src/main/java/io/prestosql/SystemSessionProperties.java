@@ -68,6 +68,7 @@ public final class SystemSessionProperties
     public static final String RESOURCE_OVERCOMMIT = "resource_overcommit";
     public static final String QUERY_MAX_CPU_TIME = "query_max_cpu_time";
     public static final String QUERY_MAX_STAGE_COUNT = "query_max_stage_count";
+    public static final String QUERY_MAX_COLUMNS_OUTPUT = "query_max_columns_output";
     public static final String REDISTRIBUTE_WRITES = "redistribute_writes";
     public static final String USE_PREFERRED_WRITE_PARTITIONING = "use_preferred_write_partitioning";
     public static final String SCALE_WRITERS = "scale_writers";
@@ -275,6 +276,11 @@ public final class SystemSessionProperties
                         "Temporary: Maximum number of stages a query can have",
                         queryManagerConfig.getMaxStageCount(),
                         true),
+                integerProperty(
+                        QUERY_MAX_COLUMNS_OUTPUT,
+                        "Maximum number of columns (including nesting) that are allowed to be output",
+                        queryManagerConfig.getMaxColumnsOutput(),
+                        false),
                 booleanProperty(
                         DICTIONARY_AGGREGATION,
                         "Enable optimization for aggregations on dictionaries",
@@ -695,6 +701,11 @@ public final class SystemSessionProperties
     public static int getQueryMaxStageCount(Session session)
     {
         return session.getSystemProperty(QUERY_MAX_STAGE_COUNT, Integer.class);
+    }
+
+    public static int getQueryMaxColumnsOutput(Session session)
+    {
+        return session.getSystemProperty(QUERY_MAX_COLUMNS_OUTPUT, Integer.class);
     }
 
     public static boolean planWithTableNodePartitioning(Session session)

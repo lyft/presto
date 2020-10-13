@@ -50,7 +50,8 @@ public class TestQueryManagerConfig
                 .setQueryMaxExecutionTime(new Duration(100, TimeUnit.DAYS))
                 .setQueryMaxCpuTime(new Duration(1_000_000_000, TimeUnit.DAYS))
                 .setRequiredWorkers(1)
-                .setRequiredWorkersMaxWait(new Duration(5, TimeUnit.MINUTES)));
+                .setRequiredWorkersMaxWait(new Duration(5, TimeUnit.MINUTES))
+                .setMaxColumnsOutput(100000));
     }
 
     @Test
@@ -78,6 +79,7 @@ public class TestQueryManagerConfig
                 .put("query.max-cpu-time", "2d")
                 .put("query-manager.required-workers", "333")
                 .put("query-manager.required-workers-max-wait", "33m")
+                .put("query.max-columns-output", "100")
                 .build();
 
         QueryManagerConfig expected = new QueryManagerConfig()
@@ -101,7 +103,8 @@ public class TestQueryManagerConfig
                 .setQueryMaxExecutionTime(new Duration(3, TimeUnit.HOURS))
                 .setQueryMaxCpuTime(new Duration(2, TimeUnit.DAYS))
                 .setRequiredWorkers(333)
-                .setRequiredWorkersMaxWait(new Duration(33, TimeUnit.MINUTES));
+                .setRequiredWorkersMaxWait(new Duration(33, TimeUnit.MINUTES))
+                .setMaxColumnsOutput(100);
 
         assertFullMapping(properties, expected);
     }

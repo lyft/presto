@@ -64,6 +64,8 @@ public class QueryManagerConfig
     private int requiredWorkers = 1;
     private Duration requiredWorkersMaxWait = new Duration(5, TimeUnit.MINUTES);
 
+    private int maxColumnsOutput = 100000;
+
     @Min(1)
     public int getScheduleSplitBatchSize()
     {
@@ -346,6 +348,20 @@ public class QueryManagerConfig
     public QueryManagerConfig setRequiredWorkersMaxWait(Duration requiredWorkersMaxWait)
     {
         this.requiredWorkersMaxWait = requiredWorkersMaxWait;
+        return this;
+    }
+
+    @Min(1)
+    public int getMaxColumnsOutput()
+    {
+        return maxColumnsOutput;
+    }
+
+    @Config("query.max-columns-output")
+    @ConfigDescription("Maximum number of top level columns (including nesting) allowed to be output")
+    public QueryManagerConfig setMaxColumnsOutput(int maxColumnsOutput)
+    {
+        this.maxColumnsOutput = maxColumnsOutput;
         return this;
     }
 }
